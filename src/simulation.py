@@ -102,7 +102,24 @@ def make_terrain_surface(cls, size=120):
 
     return surf
 
-TERRAIN_SURFS = {cls: make_terrain_surface(cls) for cls in TERRAIN_NAMES}
+def load_terrain_images(img_dir):
+    """Load real terrain JPGs from img_dir, falling back to synthetic ones on failure."""
+    surfs   = {}
+    loaded  = []
+    for cls in TERRAIN_NAMES:
+        path = os.path.join(img_dir, f"{cls}.JPG")
+        try:
+            surf = pygame.image.load(path).convert()
+            surfs[cls] = surf
+            loaded.append(cls)
+        except (pygame.error, FileNotFoundError) as e:
+            print(f"  [{cls}] failed to load {path}: {e} — using synthetic fallback")
+            surfs[cls] = make_terrain_surface(cls)
+    if loaded:
+        print(f"Loaded real terrain images: {', '.join(loaded)}")
+    else:
+        print("No real terrain images loaded — all synthetic")
+    return surfs
 
 
 # ─── Helper drawing functions ──────────────────────────────────────────────────
@@ -372,6 +389,10 @@ def main():
     pygame.display.set_caption("ANS Mars Rover — Live Simulation")
     clock  = pygame.time.Clock()
 
+    # Load real terrain images (with synthetic fallback)
+    IMG_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'sample_images')
+    TERRAIN_SURFS = load_terrain_images(IMG_DIR)
+
     # Load RL agent
     agent    = DoubleDQN()
     dqn_path = os.path.join(os.path.dirname(__file__), "..", "models", "dqn_rover.pt")
@@ -506,14 +527,15 @@ def main():
         # ── ROW 2 ─────────────────────────────────────────────────────────────
         row2_y = H_ROW + 18
 
-        # Left: actual terrain image
+        # Left: actual terrain image (fills panel minus title bar)
         r2_left = pygame.Rect(pad, row2_y, W_LEFT-2*pad, H_ROW-22)
         draw_panel(screen, r2_left, title="Terrain Image (Current Cell)")
-        t_surf  = pygame.transform.scale(
-            TERRAIN_SURFS[cur_cls],
-            (r2_left.width-20, r2_left.height-36)
-        )
-        screen.blit(t_surf, (r2_left.x+10, r2_left.y+32))
+        title_h = 28
+        img_rect = pygame.Rect(r2_left.x+2, r2_left.y+title_h,
+                               r2_left.width-4, r2_left.height-title_h-2)
+        t_surf   = pygame.transform.scale(TERRAIN_SURFS[cur_cls],
+                                          (img_rect.width, img_rect.height))
+        screen.blit(t_surf, (img_rect.x, img_rect.y))
         font_cls = pygame.font.SysFont("monospace", 15, bold=True)
         tc_col   = TERRAIN_COLORS[cur_cls]
         pygame.draw.rect(screen, tc_col,
@@ -542,6 +564,19 @@ def main():
                     py = cy_d + int(r_val * math.sin(rad))
                     screen.set_at((px, py), col)
             start_angle = end_angle
+
+        # Small terrain thumbnail with entropy overlay (top-right of Camera panel)
+        thumb_size  = 80
+        thumb_x     = r2_mid.x + r2_mid.width - thumb_size - 10
+        thumb_y     = r2_mid.y + 28
+        thumb_surf  = pygame.transform.scale(TERRAIN_SURFS[cur_cls],
+                                             (thumb_size, thumb_size))
+        screen.blit(thumb_surf, (thumb_x, thumb_y))
+        overlay = pygame.Surface((thumb_size, thumb_size), pygame.SRCALPHA)
+        overlay.fill((255, 0, 0, int(cur_entropy * 180)))
+        screen.blit(overlay, (thumb_x, thumb_y))
+        pygame.draw.rect(screen, DARK_GREY,
+                         (thumb_x, thumb_y, thumb_size, thumb_size), 1)
 
         # Entropy indicator
         ent_col = GREEN if cur_entropy < 0.3 else ORANGE if cur_entropy < 0.65 else RED
