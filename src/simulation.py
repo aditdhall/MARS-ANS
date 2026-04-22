@@ -95,7 +95,7 @@ def draw_panel(surf, rect, title=None, accent=GLOW_BLUE, r=12):
     draw_rounded(surf, (0,0,0,0), rect, r, border_col=BORDER)
     pygame.draw.rect(surf, BORDER, rect, 1, border_radius=r)
     if title:
-        surf.blit(font(13, True).render(title, True, GREY),
+        surf.blit(font(13, True).render(title, True, WHITE),
                   (rect.x + PAD, rect.y + 10))
 
 def pct_bar(surf, rect, val, col, bg=DARK_GREY, r=4):
@@ -271,7 +271,7 @@ def draw_cnn_panel(surf, rect, probs, cam_conf, entropy):
                              border_radius=3)
 
         # Label
-        surf.blit(font(11, True).render(cls[:8], True, col),
+        surf.blit(font(11, True).render(cls[:8], True, WHITE),
                   (inner.x, y + 4))
         # Value
         surf.blit(font(11, True).render(f"{prob:.2f}", True, WHITE),
@@ -297,7 +297,7 @@ def draw_lidar_panel(surf, rect, geom, hscore):
     gap = 14
     for i, (v, lbl, col) in enumerate(zip(vals, lbls, cols)):
         y = inner.y + i*(bh+gap)
-        surf.blit(font(11, True).render(lbl, True, GREY), (inner.x, y))
+        surf.blit(font(11, True).render(lbl, True, WHITE), (inner.x, y))
         bar_rect = pygame.Rect(inner.x+90, y+2, inner.width-130, bh-4)
         pct_bar(surf, bar_rect, v, col)
         surf.blit(font(11, True).render(f"{v:.2f}", True, col),
@@ -313,7 +313,7 @@ def draw_terrain_panel(surf, rect, img_surf, cls, entropy):
 
     # Entropy overlay (red tint when uncertain)
     ov = pygame.Surface((rect.width-4, ih), pygame.SRCALPHA)
-    ov.fill((220, 30, 30, int(entropy * 60)))
+    ov.fill((220, 30, 30, int(entropy * 30)))
     surf.blit(ov, (rect.x+2, rect.y+30))
 
     # Class badge
