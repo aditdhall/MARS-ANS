@@ -96,7 +96,7 @@ def draw_panel(surf, rect, title=None, accent=GLOW_BLUE, r=12):
     pygame.draw.rect(surf, BORDER, rect, 1, border_radius=r)
     if title:
         surf.blit(font(13, True).render(title, True, GREY),
-                  (rect.x + PAD, rect.y + PAD + 2))
+                  (rect.x + PAD, rect.y + 10))
 
 def pct_bar(surf, rect, val, col, bg=DARK_GREY, r=4):
     draw_rounded(surf, bg, rect, r)
@@ -313,7 +313,7 @@ def draw_terrain_panel(surf, rect, img_surf, cls, entropy):
 
     # Entropy overlay (red tint when uncertain)
     ov = pygame.Surface((rect.width-4, ih), pygame.SRCALPHA)
-    ov.fill((220, 30, 30, int(entropy * 160)))
+    ov.fill((220, 30, 30, int(entropy * 60)))
     surf.blit(ov, (rect.x+2, rect.y+30))
 
     # Class badge
