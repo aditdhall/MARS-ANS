@@ -625,24 +625,26 @@ def main():
 
         # ── Step rover ────────────────────────────────────────────────────────
         if not paused and not done and (time.time() - last_t) >= STEP_DELAY:
-            # If D* has a path, steer toward next waypoint instead of RL agent
             if dstar_path and len(dstar_path) > 1:
-                # Find closest point on D* path ahead of current position
                 cur_r, cur_c = env.current_pos
+                goal_r, goal_c = goal
+                # Find next waypoint closer to goal than current position
+                cur_dist_to_goal = math.hypot(cur_r - goal_r, cur_c - goal_c)
                 next_wp = None
                 for wp in dstar_path:
-                    if math.hypot(wp[0]-cur_r, wp[1]-cur_c) > 0.8:
+                    wp_dist = math.hypot(wp[0] - goal_r, wp[1] - goal_c)
+                    rover_to_wp = math.hypot(wp[0] - cur_r, wp[1] - cur_c)
+                    if rover_to_wp > 0.5 and wp_dist < cur_dist_to_goal:
                         next_wp = wp
                         break
                 if next_wp:
-                    # Convert waypoint direction to closest action (8 directions)
                     dr = next_wp[0] - cur_r
                     dc = next_wp[1] - cur_c
                     angle = math.atan2(dc, -dr)
                     action = int(round(angle / (math.pi/4))) % 8
                 else:
-                    action = agent.select_action(state)
                     dstar_path = []
+                    action = agent.select_action(state)
             else:
                 action = agent.select_action(state)
             state, reward, done = env.step(action)
@@ -673,9 +675,11 @@ def main():
             conflict = diff > 0.35
 
             if conflict:
-                # Penalize current cell — raise cost to discourage this area
                 new_cost = min(cost_map[ri, ci] * 2.5 + 0.3, 998)
-                dstar_path = dl.update_cell((ri, ci), new_cost)
+                cost_map[ri, ci] = new_cost
+                dl.update_cell((ri, ci), new_cost)
+                # Replan from current rover position to goal
+                dstar_path = dl.find_path((ri, ci), goal)
                 dstar_active = True
                 replan_count += 1
                 replan_cells.append((ri, ci))
