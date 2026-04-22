@@ -137,7 +137,8 @@ def build_map(H=15, W=15, alpha=0.75, h_crit=0.7):
 
 # ── Rover map panel ────────────────────────────────────────────────────────────
 def draw_map_panel(surf, rect, cost_map, class_grid, traj, theta_path,
-                   dstar_path, rover_pos, goal, step, paused, conflict):
+                   dstar_path, rover_pos, goal, step, paused, conflict,
+                   replan_cells=None):
     draw_panel(surf, rect, "  Rover Navigation Map",
                accent=GLOW_RED if conflict else GLOW_CYAN)
     GH, GW = cost_map.shape
@@ -186,6 +187,16 @@ def draw_map_panel(surf, rect, cost_map, class_grid, traj, theta_path,
             alpha = int(80 + 175 * i / len(pts))
             col   = (40, alpha, alpha)
             pygame.draw.line(surf, col, pts[i], pts[i+1], 2)
+
+    # D* replan markers — small red X at each cell where D* was triggered
+    if replan_cells:
+        for (rr, cc) in replan_cells:
+            if 0 <= rr < GH and 0 <= cc < GW:
+                mx = int(inner.x + cc*cw + cw/2)
+                my = int(inner.y + rr*ch + ch/2)
+                d  = max(int(min(cw, ch) * 0.35), 4)
+                pygame.draw.line(surf, GLOW_RED, (mx-d, my-d), (mx+d, my+d), 2)
+                pygame.draw.line(surf, GLOW_RED, (mx-d, my+d), (mx+d, my-d), 2)
 
     # Goal beacon (pulsing)
     gx = int(inner.x + goal[1]*cw + cw/2)
@@ -431,7 +442,7 @@ def draw_lidar_sensor_panel(surf, rect, geom, hscore):
 
 # ── Status bar ─────────────────────────────────────────────────────────────────
 def draw_status(surf, rect, cls, hscore, cam_conf, lidar_conf, step,
-                conflict, dstar_triggered, tick):
+                conflict, dstar_triggered, tick, replan_count=0):
     pygame.draw.rect(surf, (12, 14, 26), rect)
     pygame.draw.line(surf, BORDER, rect.topleft,
                      (rect.x+rect.width, rect.y), 1)
@@ -477,6 +488,10 @@ def draw_status(surf, rect, cls, hscore, cam_conf, lidar_conf, step,
     if dstar_triggered:
         surf.blit(font(12, True).render("D* REPLAN", True, GLOW_ORANGE),
                   (rect.x+680, rect.y+18))
+
+    # D* replan counter
+    surf.blit(font(11, True).render(f"D* replans: {replan_count}", True, GLOW_ORANGE),
+              (rect.x+800, rect.y+20))
 
     # Controls
     surf.blit(font(11).render("SPACE=pause  R=reset  Q=quit", True, DARK_GREY),
@@ -529,6 +544,8 @@ def main():
     cur_probs     = [0.05, 0.80, 0.10, 0.05]
     conflict      = False
     dstar_active  = False
+    replan_count  = 0
+    replan_cells  = []
 
     running = True
     while running:
@@ -549,6 +566,7 @@ def main():
                     GH, GW = cost_map.shape
                     traj   = [tuple(env.current_pos)]
                     step = 0; done = False; dstar_active = False; conflict = False
+                    replan_count = 0; replan_cells = []
                     last_t = time.time()
 
         # ── Step rover ────────────────────────────────────────────────────────
@@ -586,6 +604,8 @@ def main():
                 new_cost = min(cost_map[ri, ci] * 2.5 + 0.3, 998)
                 dstar_path = dl.update_cell((ri, ci), new_cost)
                 dstar_active = True
+                replan_count += 1
+                replan_cells.append((ri, ci))
             else:
                 dstar_active = len(dstar_path) > 0
 
@@ -618,7 +638,7 @@ def main():
         r1l = pygame.Rect(p, 18, W_LEFT-2*p, H_ROW-22)
         draw_map_panel(screen, r1l, cost_map, class_grid, traj,
                        theta_path, dstar_path, env.current_pos,
-                       goal, step, paused, conflict)
+                       goal, step, paused, conflict, replan_cells)
 
         r1m = pygame.Rect(W_LEFT+p, 18, W_MID-2*p, H_ROW-22)
         draw_cnn_panel(screen, r1m, cur_probs, cur_cam_conf, cur_entropy)
@@ -643,7 +663,7 @@ def main():
                     pygame.Rect(0, H-H_STATUS, W, H_STATUS),
                     cur_cls, cur_hscore, cur_cam_conf,
                     cur_geom["lidar_conf"], step,
-                    conflict, dstar_active, tick)
+                    conflict, dstar_active, tick, replan_count)
 
         # Mission overlay
         if done:
