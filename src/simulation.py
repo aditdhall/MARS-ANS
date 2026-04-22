@@ -172,7 +172,7 @@ def load_images(img_dir):
     return surfs
 
 # ── Build cost map ─────────────────────────────────────────────────────────────
-def build_map(H=15, W=15, alpha=0.75, h_crit=0.7):
+def build_map(H=15, W=15, alpha=0.75, h_crit=0.7, start=None, goal=None):
     grid     = [[random.choice(NAMES) for _ in range(W)] for _ in range(H)]
     cost_map = np.zeros((H, W))
     for i in range(H):
@@ -186,8 +186,23 @@ def build_map(H=15, W=15, alpha=0.75, h_crit=0.7):
                 + 0.2*geom["roughness"]
                 + 0.3*h
             )
-    cost_map[0, 0] = cost_map[-1, -1] = 0.15
-    return cost_map, grid
+
+    if start is None:
+        # Pick random start/goal on passable cells with >=10 cell separation
+        passable = [(i, j) for i in range(H) for j in range(W)
+                    if cost_map[i, j] < 999]
+        for _ in range(500):
+            s = random.choice(passable)
+            g = random.choice(passable)
+            if math.hypot(s[0]-g[0], s[1]-g[1]) >= 10:
+                start, goal = s, g
+                break
+        if start is None:
+            start, goal = (0, 0), (H-1, W-1)
+
+    cost_map[start] = 0.15
+    cost_map[goal]  = 0.15
+    return cost_map, grid, start, goal
 
 # ── Rover map panel ────────────────────────────────────────────────────────────
 def draw_map_panel(surf, rect, cost_map, class_grid, traj, theta_path,
@@ -358,9 +373,9 @@ def draw_lidar_panel(surf, rect, geom, hscore):
                   (inner.x + inner.width - 35, y+2))
 
 # ── Terrain image panel ────────────────────────────────────────────────────────
-def draw_terrain_panel(surf, rect, img_surf, cls, entropy):
+def draw_terrain_panel(surf, rect, img_surf, cls, entropy, title="  Terrain Image"):
     tc = TERRAIN_COL.get(cls, WHITE)
-    draw_panel(surf, rect, "  Terrain Image", accent=tc)
+    draw_panel(surf, rect, title, accent=tc)
     ih = rect.height - 38
     t_surf = pygame.transform.scale(img_surf, (rect.width-4, ih))
     surf.blit(t_surf, (rect.x+2, rect.y+30))
@@ -569,9 +584,7 @@ def main():
     agent.epsilon = 0.05
 
     def reset_sim():
-        cm, cg = build_map()
-        GH, GW = cm.shape
-        s, g   = (0,0), (GH-1, GW-1)
+        cm, cg, s, g = build_map()
         env    = MarsRoverEnv(cm, s, g)
         env.reset()
         ts     = ThetaStar(cm)
@@ -596,6 +609,7 @@ def main():
     cur_cam_conf  = 0.85
     cur_hscore    = 0.2
     cur_probs     = [0.05, 0.80, 0.10, 0.05]
+    preview_cls   = "bedrock"
     conflict      = False
     dstar_active  = False
     replan_count  = 0
@@ -656,6 +670,16 @@ def main():
             ci = int(np.clip(env.current_pos[1], 0, GW-1))
             cur_cls  = class_grid[ri][ci]
             cur_geom = get_geometry(cur_cls)
+
+            # Terrain preview: class of the next cell the rover is heading to
+            if dstar_path and len(dstar_path) > 1:
+                preview_cls = class_grid[dstar_path[1][0]][dstar_path[1][1]]
+            elif theta_path and len(theta_path) > 1:
+                next_r = int(np.clip(theta_path[1][0], 0, GH-1))
+                next_c = int(np.clip(theta_path[1][1], 0, GW-1))
+                preview_cls = class_grid[next_r][next_c]
+            else:
+                preview_cls = cur_cls
 
             # Simulate CNN probabilities
             bp = {c: 0.05 for c in NAMES}
@@ -726,7 +750,8 @@ def main():
         # ROW 2
         r2y = H_ROW + 18
         r2l = pygame.Rect(p, r2y, W_LEFT-2*p, H_ROW-22)
-        draw_terrain_panel(screen, r2l, IMGS[cur_cls], cur_cls, cur_entropy)
+        draw_terrain_panel(screen, r2l, IMGS[preview_cls], preview_cls,
+                           cur_entropy, title="  Next Cell Terrain")
 
         r2m = pygame.Rect(W_LEFT+p, r2y, W_MID-2*p, H_ROW-22)
         draw_camera_panel(screen, r2m, cur_probs, cur_entropy,
