@@ -61,11 +61,38 @@ TERRAIN_GLOW = {
 NAMES = ["soil", "bedrock", "sand", "big_rocks"]
 
 # ── Font cache ─────────────────────────────────────────────────────────────────
+# SysFont("monospace") on macOS falls back to a bitmap font that renders as
+# solid blocks at small bold sizes. Resolve explicit faces via match_font and
+# fall back to pygame's bundled FreeSans (Font(None, ...)) if none are present.
 _fonts = {}
+_MONO_STACK  = ["menlo", "sfmono", "monaco", "consolas", "dejavusansmono",
+                "couriernew", "liberationmono"]
+_TITLE_STACK = ["sfprotext", "helveticaneue", "helvetica", "arial",
+                "segoeui", "dejavusans", "liberationsans"]
+
+def _resolve(stack, size, bold):
+    for name in stack:
+        path = pygame.font.match_font(name, bold=bold)
+        if path:
+            f = pygame.font.Font(path, size)
+            if bold:
+                f.set_bold(True)
+            return f
+    f = pygame.font.Font(None, size)
+    if bold:
+        f.set_bold(True)
+    return f
+
 def font(size, bold=False):
-    key = (size, bold)
+    key = ("mono", size, bold)
     if key not in _fonts:
-        _fonts[key] = pygame.font.SysFont("monospace", size, bold=bold)
+        _fonts[key] = _resolve(_MONO_STACK, size, bold)
+    return _fonts[key]
+
+def title_font(size, bold=True):
+    key = ("title", size, bold)
+    if key not in _fonts:
+        _fonts[key] = _resolve(_TITLE_STACK, size, bold)
     return _fonts[key]
 
 # ── Drawing helpers ────────────────────────────────────────────────────────────
@@ -88,15 +115,42 @@ def glow_circle(surf, col, pos, r, w=2, glow=8):
     pygame.draw.circle(surf, col, pos, r, w)
 
 def draw_panel(surf, rect, title=None, accent=GLOW_BLUE, r=12):
-    draw_rounded(surf, PANEL, rect, r)
-    # top accent bar
-    top = pygame.Rect(rect.x+2, rect.y+2, rect.width-4, 3)
-    pygame.draw.rect(surf, accent, top, border_radius=r)
-    draw_rounded(surf, (0,0,0,0), rect, r, border_col=BORDER)
+    # Subtle vertical gradient fill for depth
+    grad = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+    for i in range(rect.height):
+        t = i / max(rect.height-1, 1)
+        col = (
+            int(PANEL[0] * (1 - 0.25*t) + PANEL2[0] * 0.25*t),
+            int(PANEL[1] * (1 - 0.25*t) + PANEL2[1] * 0.25*t),
+            int(PANEL[2] * (1 - 0.25*t) + PANEL2[2] * 0.25*t),
+            255,
+        )
+        pygame.draw.line(grad, col, (0, i), (rect.width, i))
+    mask = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+    pygame.draw.rect(mask, (255, 255, 255, 255), mask.get_rect(), border_radius=r)
+    grad.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+    surf.blit(grad, rect.topleft)
+
+    # Top accent bar (kept short of the title so it doesn't clip letters)
+    top = pygame.Rect(rect.x + 10, rect.y + 3, rect.width - 20, 2)
+    pygame.draw.rect(surf, accent, top, border_radius=2)
+
+    # Border
     pygame.draw.rect(surf, BORDER, rect, 1, border_radius=r)
+
     if title:
-        surf.blit(font(13, True).render(title, True, WHITE),
-                  (rect.x + PAD, rect.y + 10))
+        t = title.strip()
+        label  = title_font(15).render(t, True, WHITE)
+        shadow = title_font(15).render(t, True, (0, 0, 0))
+        ty = rect.y + 8
+        surf.blit(shadow, (rect.x + PAD + 1, ty + 1))
+        surf.blit(label,  (rect.x + PAD,     ty))
+        # Thin accent underline under the title (sits inside the 30px header band)
+        uw = min(label.get_width() + 8, rect.width - 2*PAD)
+        uy = ty + label.get_height() + 1
+        pygame.draw.line(surf, accent,
+                         (rect.x + PAD, uy),
+                         (rect.x + PAD + uw, uy), 2)
 
 def pct_bar(surf, rect, val, col, bg=DARK_GREY, r=4):
     draw_rounded(surf, bg, rect, r)
