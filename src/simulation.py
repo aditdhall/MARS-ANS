@@ -228,7 +228,7 @@ def build_map(H=15, W=15, alpha=0.75, h_crit=0.7, start=None, goal=None):
 # ── Rover map panel ────────────────────────────────────────────────────────────
 def draw_map_panel(surf, rect, cost_map, class_grid, traj, theta_path,
                    dstar_path, rover_pos, goal, step, paused, conflict,
-                   replan_cells=None):
+                   replan_cells=None, dstar_history=None):
     draw_panel(surf, rect, "  Rover Navigation Map",
                accent=GLOW_RED if conflict else GLOW_CYAN)
     GH, GW = cost_map.shape
@@ -262,12 +262,29 @@ def draw_map_panel(surf, rect, cost_map, class_grid, traj, theta_path,
         py = int(inner.y + p[0]*ch + ch/2)
         pygame.draw.circle(surf, (180, 180, 180), (px, py), 2)
 
-    # D* Lite replan path (glowing orange)
-    if dstar_path and len(dstar_path) > 1:
+    # D* Lite replan history — every plan ever generated stays on screen.
+    # Older plans fade to dim orange; the newest (active) plan glows bright.
+    history = list(dstar_history) if dstar_history else []
+    # Make sure the currently-active path is in the history set
+    if dstar_path and len(dstar_path) > 1 and (not history or history[-1] is not dstar_path):
+        if not history or history[-1] != list(dstar_path):
+            history = history + [list(dstar_path)]
+    for idx, path in enumerate(history):
+        if len(path) < 2:
+            continue
+        is_latest = (idx == len(history) - 1)
         pts = [(int(inner.x + p[1]*cw + cw/2),
-                int(inner.y + p[0]*ch + ch/2)) for p in dstar_path]
-        for i in range(len(pts)-1):
-            glow_line(surf, GLOW_ORANGE, pts[i], pts[i+1], w=2, glow=5)
+                int(inner.y + p[0]*ch + ch/2)) for p in path]
+        if is_latest:
+            for i in range(len(pts)-1):
+                glow_line(surf, GLOW_ORANGE, pts[i], pts[i+1], w=2, glow=5)
+        else:
+            # Fade factor: oldest ~0.35, newer historic ~0.6
+            denom = max(len(history) - 1, 1)
+            fade  = 0.35 + 0.30 * (idx / denom)
+            col   = tuple(int(c * fade) for c in GLOW_ORANGE)
+            for i in range(len(pts)-1):
+                pygame.draw.line(surf, col, pts[i], pts[i+1], 1)
 
     # Trajectory
     if len(traj) > 1:
@@ -304,7 +321,7 @@ def draw_map_panel(surf, rect, cost_map, class_grid, traj, theta_path,
         heading = math.atan2(dx, -dy) if (dx or dy) else 0
     else:
         heading = 0
-    ts = max(int(cw*1.3), 7)
+    ts = max(min(int(cw*0.55), 14), 6)
     tri = [
         (rx + ts*math.sin(heading),      ry - ts*math.cos(heading)),
         (rx + ts*math.sin(heading+2.3),  ry - ts*math.cos(heading+2.3)),
@@ -322,8 +339,14 @@ def draw_map_panel(surf, rect, cost_map, class_grid, traj, theta_path,
     pygame.draw.line(surf, (180,180,180), (lx, ly+4), (lx+18, ly+4), 1)
     surf.blit(font(10).render("Theta*", True, GREY), (lx+22, ly))
     lx2 = lx + 80
-    glow_line(surf, GLOW_ORANGE, (lx2, ly+4), (lx2+18, ly+4), w=2, glow=3)
-    surf.blit(font(10).render("D* replan", True, GREY), (lx2+22, ly))
+    # Faded past replans
+    past = tuple(int(c*0.45) for c in GLOW_ORANGE)
+    pygame.draw.line(surf, past, (lx2, ly+4), (lx2+18, ly+4), 1)
+    surf.blit(font(10).render("past D*", True, GREY), (lx2+22, ly))
+    # Active D*
+    lx3 = lx2 + 90
+    glow_line(surf, GLOW_ORANGE, (lx3, ly+4), (lx3+18, ly+4), w=2, glow=3)
+    surf.blit(font(10).render("active D*", True, GREY), (lx3+22, ly))
 
     # Status
     st = "PAUSED" if paused else f"Step {step}/300"
@@ -644,6 +667,7 @@ def main():
     dstar_active  = False
     replan_count  = 0
     replan_cells  = []
+    dstar_history = []  # every D* replan plan, kept for end-of-run visualisation
 
     running = True
     while running:
@@ -664,7 +688,7 @@ def main():
                     GH, GW = cost_map.shape
                     traj   = [tuple(env.current_pos)]
                     step = 0; done = False; dstar_active = False; conflict = False
-                    replan_count = 0; replan_cells = []
+                    replan_count = 0; replan_cells = []; dstar_history = []
                     last_t = time.time()
 
         # ── Step rover ────────────────────────────────────────────────────────
@@ -712,7 +736,7 @@ def main():
                 preview_cls = cur_cls
 
             if server_online:
-                result = infer_from_server(cur_cls, SERVER_URL)
+                result = infer_from_server(preview_cls, SERVER_URL)
                 if result:
                     cur_probs, cur_entropy, cur_cam_conf, cur_stem = result
                 else:
@@ -731,9 +755,12 @@ def main():
                                        cur_geom["lidar_conf"], beta=0.5)
             cur_hscore = compute_hscore(u_fused, cur_cls, alpha=0.75)
 
-            # ── D* Lite replanning on sensor conflict ──────────────────────
-            diff = abs(cur_cam_conf - cur_geom["lidar_conf"])
-            conflict = diff > 0.35
+            # ── D* Lite replanning on fused uncertainty ────────────────────
+            # Conflict: CNN's top class disagrees with lidar's terrain read,
+            # OR the fused H-score is high (risk regardless of source).
+            cnn_pred = NAMES[int(np.argmax(cur_probs))]
+            class_mismatch = cnn_pred != cur_cls
+            conflict = class_mismatch or cur_hscore > 0.65
 
             if conflict:
                 new_cost = min(cost_map[ri, ci] * 2.5 + 0.3, 998)
@@ -741,6 +768,8 @@ def main():
                 dl.update_cell((ri, ci), new_cost)
                 # Replan from current rover position to goal
                 dstar_path = dl.find_path((ri, ci), goal)
+                if dstar_path and len(dstar_path) > 1:
+                    dstar_history.append(list(dstar_path))
                 dstar_active = True
                 replan_count += 1
                 replan_cells.append((ri, ci))
@@ -776,7 +805,8 @@ def main():
         r1l = pygame.Rect(p, 18, W_LEFT-2*p, H_ROW-22)
         draw_map_panel(screen, r1l, cost_map, class_grid, traj,
                        theta_path, dstar_path, env.current_pos,
-                       goal, step, paused, conflict, replan_cells)
+                       goal, step, paused, conflict, replan_cells,
+                       dstar_history)
 
         r1m = pygame.Rect(W_LEFT+p, 18, W_MID-2*p, H_ROW-22)
         draw_cnn_panel(screen, r1m, cur_probs, cur_cam_conf, cur_entropy)
