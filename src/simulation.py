@@ -625,7 +625,26 @@ def main():
 
         # ── Step rover ────────────────────────────────────────────────────────
         if not paused and not done and (time.time() - last_t) >= STEP_DELAY:
-            action            = agent.select_action(state)
+            # If D* has a path, steer toward next waypoint instead of RL agent
+            if dstar_path and len(dstar_path) > 1:
+                # Find closest point on D* path ahead of current position
+                cur_r, cur_c = env.current_pos
+                next_wp = None
+                for wp in dstar_path:
+                    if math.hypot(wp[0]-cur_r, wp[1]-cur_c) > 0.8:
+                        next_wp = wp
+                        break
+                if next_wp:
+                    # Convert waypoint direction to closest action (8 directions)
+                    dr = next_wp[0] - cur_r
+                    dc = next_wp[1] - cur_c
+                    angle = math.atan2(dc, -dr)
+                    action = int(round(angle / (math.pi/4))) % 8
+                else:
+                    action = agent.select_action(state)
+                    dstar_path = []
+            else:
+                action = agent.select_action(state)
             state, reward, done = env.step(action)
             step += 1
             traj.append(tuple(env.current_pos))
