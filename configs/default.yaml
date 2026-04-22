@@ -1,0 +1,69 @@
+# ANS Default Configuration
+# All hyperparameters in one place
+
+# Grid
+cell_size_m: 0.5        # each cell = 0.5 meters
+grid_size: 15           # training grid size
+
+# Sensor fusion
+mc_passes: 30           # MC Dropout forward passes
+beta: 0.5               # camera vs lidar fusion weight
+
+# H-score (best from ablation)
+alpha: 0.75             # uncertainty vs volatility weight
+h_crit: 0.7             # impassable threshold
+
+# Cost map weights
+w_terrain: 0.3
+w_slope: 0.2
+w_rough: 0.2
+w_hscore: 0.3
+
+# RL training
+episodes: 500
+batch_size: 64
+lr: 0.0001
+gamma: 0.99
+epsilon_start: 1.0
+epsilon_end: 0.05
+epsilon_decay: 0.995
+replay_buffer_size: 10000
+hidden_dim: 128
+tau: 0.005              # soft target update rate
+max_steps_per_episode: 300
+
+# MobileNetV3 training
+model_lr: 0.0001
+model_epochs: 30
+train_split: 0.8
+val_split: 0.1
+test_split: 0.1
+image_size: 256
+batch_size_perception: 16
+
+# Terrain volatility
+volatility:
+  soil: 0.40
+  bedrock: 0.10
+  sand: 0.80
+  big_rocks: 0.70
+
+# Terrain traversal cost
+terrain_cost:
+  soil: 0.30
+  bedrock: 0.10
+  sand: 0.60
+  big_rocks: 0.90
+
+# Class weights for imbalanced training
+class_weights:
+  soil: 2.7
+  bedrock: 2.0
+  sand: 8.3
+  big_rocks: 111.0
+
+# Ablation sweep values
+ablation:
+  alpha_values: [0.0, 0.25, 0.5, 0.75, 1.0]
+  h_crit_values: [0.4, 0.5, 0.6, 0.7, 0.8]
+  n_runs: 20
