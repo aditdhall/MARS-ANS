@@ -1,0 +1,66 @@
+{
+  "alpha_sweep": {
+    "0.0": {
+      "completion_rate": 0.0,
+      "avg_steps": 5.45,
+      "avg_reward": 6.671207139448434,
+      "avg_collisions": 1.0
+    },
+    "0.25": {
+      "completion_rate": 0.0,
+      "avg_steps": 10.95,
+      "avg_reward": 26.554430203424516,
+      "avg_collisions": 1.0
+    },
+    "0.5": {
+      "completion_rate": 0.95,
+      "avg_steps": 39.9,
+      "avg_reward": 238.25119452860037,
+      "avg_collisions": 0.05
+    },
+    "0.75": {
+      "completion_rate": 0.95,
+      "avg_steps": 39.8,
+      "avg_reward": 238.26657102186658,
+      "avg_collisions": 0.05
+    },
+    "1.0": {
+      "completion_rate": 0.8,
+      "avg_steps": 36.3,
+      "avg_reward": 208.22194093669614,
+      "avg_collisions": 0.2
+    }
+  },
+  "h_crit_sweep": {
+    "0.4": {
+      "completion_rate": 0.0,
+      "avg_steps": 5.3,
+      "avg_reward": 6.7213722631799495,
+      "avg_collisions": 1.0
+    },
+    "0.5": {
+      "completion_rate": 0.2,
+      "avg_steps": 22.35,
+      "avg_reward": 88.63528826940959,
+      "avg_collisions": 0.8
+    },
+    "0.6": {
+      "completion_rate": 0.95,
+      "avg_steps": 38.8,
+      "avg_reward": 229.77881456932613,
+      "avg_collisions": 0.05
+    },
+    "0.7": {
+      "completion_rate": 1.0,
+      "avg_steps": 39.55,
+      "avg_reward": 243.74925462698488,
+      "avg_collisions": 0.0
+    },
+    "0.8": {
+      "completion_rate": 0.85,
+      "avg_steps": 36.5,
+      "avg_reward": 212.71405775007548,
+      "avg_collisions": 0.15
+    }
+  }
+}
