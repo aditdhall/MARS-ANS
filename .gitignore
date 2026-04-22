@@ -1,13 +1,6 @@
 venv/
 __pycache__/
 *.pyc
-*.pt
-*.npy
-*.zip
-saved_outputs/
-figures/*.png
-figures/*.json
 .DS_Store
 data/ai4mars/
-models/best_model.pt
-models/dqn_rover.pt
+saved_outputs/
