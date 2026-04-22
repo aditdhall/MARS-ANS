@@ -1,642 +1,665 @@
 """
-ANS Mars Rover — Live Simulation Demo
-======================================
-Pygame window with 2 rows and 6 panels showing the rover navigating
-in real time with live sensor readings.
-
+ANS Mars Rover — Live Simulation Demo  (v2 — polished)
+========================================================
 Controls:
   SPACE  — pause / resume
   R      — reset with new random map
   Q/ESC  — quit
-
-Run from project root:
-  cd src && python simulation.py
 """
 
-import math
-import os
-import random
-import sys
-import time
-
+import math, os, random, sys, time
 import numpy as np
 import pygame
 
-# Add src to path
 sys.path.insert(0, os.path.dirname(__file__))
-
 import config
 from perception import get_geometry, compute_fusion, compute_hscore
-from planner import ThetaStar
+from planner import ThetaStar, DStarLite
 from rl_agent import MarsRoverEnv, DoubleDQN
 import torch
 
-# ─── Layout constants ─────────────────────────────────────────────────────────
-W_SCREEN   = 1280
-H_SCREEN   = 780
-H_ROW      = 330
-H_STATUS   = 60
-W_LEFT     = 460
-W_MID      = 360
-W_RIGHT    = W_SCREEN - W_LEFT - W_MID   # 460
+# ── Screen layout ──────────────────────────────────────────────────────────────
+W, H        = 1400, 820
+H_ROW       = 360
+H_STATUS    = 56
+W_LEFT      = 500
+W_MID       = 380
+W_RIGHT     = W - W_LEFT - W_MID
+PAD         = 12
+FPS         = 60
+STEP_DELAY  = 0.75
 
-PANEL_PAD  = 10
-FPS        = 60
-STEP_DELAY = 0.8  # seconds between rover steps
+# ── Colour palette ─────────────────────────────────────────────────────────────
+BG          = (10, 12, 22)
+PANEL       = (18, 22, 38)
+PANEL2      = (22, 28, 48)
+BORDER      = (45, 55, 90)
+GLOW_BLUE   = (40, 120, 220)
+GLOW_CYAN   = (40, 210, 220)
+GLOW_GREEN  = (40, 210, 110)
+GLOW_RED    = (220, 55, 55)
+GLOW_ORANGE = (240, 155, 30)
+GLOW_PURPLE = (160, 70, 220)
+WHITE       = (240, 245, 255)
+GREY        = (130, 140, 165)
+DARK_GREY   = (55, 62, 82)
+LIME        = (100, 240, 80)
+YELLOW      = (240, 220, 50)
 
-# ─── Colours ──────────────────────────────────────────────────────────────────
-BG          = (18, 18, 28)
-PANEL_BG    = (28, 28, 42)
-PANEL_EDGE  = (60, 60, 90)
-WHITE       = (255, 255, 255)
-GREY        = (160, 160, 180)
-DARK_GREY   = (80,  80, 100)
-GREEN       = (50,  220, 100)
-RED         = (220,  60,  60)
-ORANGE      = (240, 160,  40)
-CYAN        = (40,  220, 220)
-YELLOW      = (240, 220,  60)
-PURPLE      = (180,  80, 220)
-LIME        = (120, 240,  60)
-
-TERRAIN_COLORS = {
-    "soil":      (176, 142,  97),
-    "bedrock":   (110, 110, 130),
-    "sand":      (210, 195, 140),
-    "big_rocks": (130,  80,  50),
+TERRAIN_COL = {
+    "soil":      (170, 130,  85),
+    "bedrock":   (105, 108, 128),
+    "sand":      (205, 188, 130),
+    "big_rocks": (118,  72,  48),
 }
-TERRAIN_NAMES = ["soil", "bedrock", "sand", "big_rocks"]
+TERRAIN_GLOW = {
+    "soil":      (200, 160, 100),
+    "bedrock":   (130, 135, 160),
+    "sand":      (230, 210, 150),
+    "big_rocks": (160,  95,  60),
+}
+NAMES = ["soil", "bedrock", "sand", "big_rocks"]
 
-# ─── Synthetic terrain images (generated, no real images needed) ──────────────
-def make_terrain_surface(cls, size=120):
-    """Generate a synthetic Mars-like terrain image for each class."""
-    surf = pygame.Surface((size, size))
-    base = TERRAIN_COLORS[cls]
-    rng  = np.random.RandomState(hash(cls) % 2**31)
+# ── Font cache ─────────────────────────────────────────────────────────────────
+_fonts = {}
+def font(size, bold=False):
+    key = (size, bold)
+    if key not in _fonts:
+        _fonts[key] = pygame.font.SysFont("monospace", size, bold=bold)
+    return _fonts[key]
 
-    for x in range(size):
-        for y in range(size):
-            noise = rng.randint(-25, 25)
-            r = max(0, min(255, base[0] + noise))
-            g = max(0, min(255, base[1] + noise // 2))
-            b = max(0, min(255, base[2] + noise // 3))
-            surf.set_at((x, y), (r, g, b))
+# ── Drawing helpers ────────────────────────────────────────────────────────────
+def draw_rounded(surf, col, rect, r=10, border=None, border_col=None, width=2):
+    pygame.draw.rect(surf, col, rect, border_radius=r)
+    if border:
+        pygame.draw.rect(surf, border_col or BORDER, rect, width, border_radius=r)
 
-    if cls == "big_rocks":
-        for _ in range(8):
-            rx, ry = rng.randint(5, size-15), rng.randint(5, size-15)
-            rr = rng.randint(6, 18)
-            pygame.draw.ellipse(surf, (80, 55, 35), (rx, ry, rr*2, rr))
-            pygame.draw.ellipse(surf, (60, 40, 25), (rx+2, ry+2, rr*2-4, rr-4))
-    elif cls == "sand":
-        for _ in range(5):
-            sx = rng.randint(0, size-20)
-            pygame.draw.arc(surf, (190, 175, 120),
-                            (sx, rng.randint(20, size-20), rng.randint(20,50), 8),
-                            0, math.pi, 2)
-    elif cls == "bedrock":
-        for _ in range(6):
-            x1, y1 = rng.randint(0, size), rng.randint(0, size)
-            x2, y2 = x1 + rng.randint(-30, 30), y1 + rng.randint(-30, 30)
-            pygame.draw.line(surf, (85, 85, 100), (x1, y1), (x2, y2), 1)
+def glow_line(surf, col, p1, p2, w=2, glow=6):
+    gc = tuple(min(255, c + 80) for c in col)
+    for ww in range(glow, 0, -2):
+        alpha_col = tuple(int(c * ww/glow) for c in gc)
+        pygame.draw.line(surf, alpha_col, p1, p2, ww)
+    pygame.draw.line(surf, col, p1, p2, w)
 
-    return surf
+def glow_circle(surf, col, pos, r, w=2, glow=8):
+    for ww in range(glow, 0, -2):
+        gc = tuple(int(c * ww/glow) for c in col)
+        pygame.draw.circle(surf, gc, pos, r + ww//2, ww)
+    pygame.draw.circle(surf, col, pos, r, w)
 
-def load_terrain_images(img_dir):
-    """Load real terrain JPGs from img_dir, falling back to synthetic ones on failure."""
-    surfs   = {}
-    loaded  = []
-    for cls in TERRAIN_NAMES:
+def draw_panel(surf, rect, title=None, accent=GLOW_BLUE, r=12):
+    draw_rounded(surf, PANEL, rect, r)
+    # top accent bar
+    top = pygame.Rect(rect.x+2, rect.y+2, rect.width-4, 3)
+    pygame.draw.rect(surf, accent, top, border_radius=r)
+    draw_rounded(surf, (0,0,0,0), rect, r, border_col=BORDER)
+    pygame.draw.rect(surf, BORDER, rect, 1, border_radius=r)
+    if title:
+        surf.blit(font(13, True).render(title, True, GREY),
+                  (rect.x + PAD, rect.y + PAD + 2))
+
+def pct_bar(surf, rect, val, col, bg=DARK_GREY, r=4):
+    draw_rounded(surf, bg, rect, r)
+    filled = pygame.Rect(rect.x, rect.y, int(rect.width * max(0, min(1, val))), rect.height)
+    if filled.width > 0:
+        draw_rounded(surf, col, filled, r)
+
+def load_images(img_dir):
+    surfs = {}
+    for cls in NAMES:
         path = os.path.join(img_dir, f"{cls}.JPG")
         try:
-            surf = pygame.image.load(path).convert()
-            surfs[cls] = surf
-            loaded.append(cls)
-        except (pygame.error, FileNotFoundError) as e:
-            print(f"  [{cls}] failed to load {path}: {e} — using synthetic fallback")
-            surfs[cls] = make_terrain_surface(cls)
-    if loaded:
-        print(f"Loaded real terrain images: {', '.join(loaded)}")
-    else:
-        print("No real terrain images loaded — all synthetic")
+            surfs[cls] = pygame.image.load(path).convert()
+            print(f"  Loaded {cls}")
+        except Exception:
+            s = pygame.Surface((200, 200))
+            s.fill(TERRAIN_COL[cls])
+            surfs[cls] = s
     return surfs
 
-
-# ─── Helper drawing functions ──────────────────────────────────────────────────
-def draw_panel(surf, rect, title=None, edge_color=PANEL_EDGE):
-    pygame.draw.rect(surf, PANEL_BG, rect, border_radius=8)
-    pygame.draw.rect(surf, edge_color, rect, 2, border_radius=8)
-    if title:
-        font_sm = pygame.font.SysFont("monospace", 13, bold=True)
-        label   = font_sm.render(title, True, GREY)
-        surf.blit(label, (rect.x + PANEL_PAD, rect.y + PANEL_PAD))
-
-
-def draw_bar_chart(surf, rect, values, labels, colors, title=""):
-    draw_panel(surf, rect)
-    font_sm = pygame.font.SysFont("monospace", 11)
-    font_ti = pygame.font.SysFont("monospace", 13, bold=True)
-    if title:
-        surf.blit(font_ti.render(title, True, GREY), (rect.x+PANEL_PAD, rect.y+PANEL_PAD))
-
-    n     = len(values)
-    inner = rect.inflate(-20, -40)
-    inner.y += 24
-    bw    = inner.width // n - 4
-    max_h = inner.height - 24
-
-    for i, (val, lbl, col) in enumerate(zip(values, labels, colors)):
-        bh = int(val * max_h)
-        bx = inner.x + i * (bw + 4)
-        by = inner.y + max_h - bh
-        pygame.draw.rect(surf, col, (bx, by, bw, bh), border_radius=3)
-        pct = font_sm.render(f"{val:.2f}", True, WHITE)
-        surf.blit(pct, (bx, by - 14))
-        lbl_s = font_sm.render(lbl[:4], True, GREY)
-        surf.blit(lbl_s, (bx, inner.y + max_h + 2))
-
-
-def draw_radar(surf, rect, values, labels, color, title=""):
-    """Draw a radar/spider chart."""
-    draw_panel(surf, rect)
-    font_sm = pygame.font.SysFont("monospace", 11)
-    font_ti = pygame.font.SysFont("monospace", 13, bold=True)
-    if title:
-        surf.blit(font_ti.render(title, True, GREY), (rect.x+PANEL_PAD, rect.y+PANEL_PAD))
-
-    cx    = rect.centerx
-    cy    = rect.centery + 10
-    r_max = min(rect.width, rect.height) // 2 - 28
-    n     = len(values)
-
-    # Draw grid rings
-    for ring in [0.25, 0.5, 0.75, 1.0]:
-        pts = []
-        for i in range(n):
-            angle = math.pi/2 + 2*math.pi*i/n
-            px = cx + ring * r_max * math.cos(angle)
-            py = cy - ring * r_max * math.sin(angle)
-            pts.append((px, py))
-        pygame.draw.polygon(surf, DARK_GREY, pts, 1)
-
-    # Draw axes
-    for i in range(n):
-        angle = math.pi/2 + 2*math.pi*i/n
-        ex = cx + r_max * math.cos(angle)
-        ey = cy - r_max * math.sin(angle)
-        pygame.draw.line(surf, DARK_GREY, (cx, cy), (ex, ey), 1)
-        lx = cx + (r_max+14) * math.cos(angle) - 16
-        ly = cy - (r_max+14) * math.sin(angle) - 6
-        surf.blit(font_sm.render(labels[i], True, GREY), (lx, ly))
-
-    # Draw filled polygon
-    pts = []
-    for i, val in enumerate(values):
-        angle = math.pi/2 + 2*math.pi*i/n
-        px = cx + val * r_max * math.cos(angle)
-        py = cy - val * r_max * math.sin(angle)
-        pts.append((px, py))
-    if len(pts) >= 3:
-        s = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-        local_pts = [(p[0]-rect.x, p[1]-rect.y) for p in pts]
-        pygame.draw.polygon(s, (*color, 100), local_pts)
-        pygame.draw.polygon(s, (*color, 220), local_pts, 2)
-        surf.blit(s, (rect.x, rect.y))
-
-
-def draw_gauge(surf, rect, value, title="", label=""):
-    """Draw a semicircle speedometer gauge."""
-    draw_panel(surf, rect)
-    font_sm = pygame.font.SysFont("monospace", 11)
-    font_ti = pygame.font.SysFont("monospace", 13, bold=True)
-    font_lg = pygame.font.SysFont("monospace", 20, bold=True)
-    if title:
-        surf.blit(font_ti.render(title, True, GREY), (rect.x+PANEL_PAD, rect.y+PANEL_PAD))
-
-    cx = rect.centerx
-    cy = rect.y + rect.height - 28
-    r  = min(rect.width//2 - 20, rect.height - 50)
-
-    # Draw arc segments (green → yellow → red)
-    for deg in range(0, 180, 3):
-        t     = deg / 180
-        angle = math.pi - math.radians(deg)
-        col   = (int(50+200*t), int(220-160*t), 60) if t < 0.5 else \
-                (int(150+100*(t-0.5)*2), int(60+60*(1-(t-0.5)*2)), 60)
-        x1 = cx + (r-8) * math.cos(angle)
-        y1 = cy - (r-8) * math.sin(angle)
-        x2 = cx + r      * math.cos(angle)
-        y2 = cy - r      * math.sin(angle)
-        pygame.draw.line(surf, col, (int(x1), int(y1)), (int(x2), int(y2)), 4)
-
-    # Needle
-    needle_angle = math.pi - math.pi * max(0, min(1, value))
-    nx = cx + (r-4) * math.cos(needle_angle)
-    ny = cy - (r-4) * math.sin(needle_angle)
-    pygame.draw.line(surf, WHITE, (cx, cy), (int(nx), int(ny)), 3)
-    pygame.draw.circle(surf, WHITE, (cx, cy), 5)
-
-    # Value text
-    val_col = GREEN if value < 0.4 else ORANGE if value < 0.7 else RED
-    surf.blit(font_lg.render(f"{value:.3f}", True, val_col),
-              (cx-28, cy-18))
-    if label:
-        surf.blit(font_sm.render(label, True, GREY), (cx-20, cy+6))
-
-
-def draw_rover_map(surf, rect, cost_map, trajectory, plan_path,
-                   rover_pos, goal, step, paused, title=""):
-    draw_panel(surf, rect)
-    font_sm = pygame.font.SysFont("monospace", 11)
-    font_ti = pygame.font.SysFont("monospace", 13, bold=True)
-    if title:
-        surf.blit(font_ti.render(title, True, GREY), (rect.x+PANEL_PAD, rect.y+PANEL_PAD))
-
-    H, W = cost_map.shape
-    inner = pygame.Rect(rect.x+PANEL_PAD, rect.y+28,
-                        rect.width-2*PANEL_PAD, rect.height-40)
-    cell_w = inner.width  / W
-    cell_h = inner.height / H
-
-    # Draw cells
-    max_cost = cost_map[cost_map < 999].max() if (cost_map < 999).any() else 1
-    for i in range(H):
-        for j in range(W):
-            c    = cost_map[i, j]
-            cx_  = int(inner.x + j * cell_w)
-            cy_  = int(inner.y + i * cell_h)
-            cw_  = max(1, int(cell_w))
-            ch_  = max(1, int(cell_h))
-            if c >= 999:
-                col = (50, 20, 20)
-            else:
-                t   = c / max_cost
-                col = (int(20+80*t), int(100+100*(1-t)), int(60+140*(1-t)))
-            pygame.draw.rect(surf, col, (cx_, cy_, cw_, ch_))
-
-    # Draw planned path
-    if plan_path:
-        for p in plan_path:
-            px = int(inner.x + p[1] * cell_w + cell_w/2)
-            py = int(inner.y + p[0] * cell_h + cell_h/2)
-            pygame.draw.circle(surf, YELLOW, (px, py), 2)
-
-    # Draw trajectory
-    if len(trajectory) > 1:
-        pts = [(int(inner.x + p[1]*cell_w + cell_w/2),
-                int(inner.y + p[0]*cell_h + cell_h/2)) for p in trajectory]
-        pygame.draw.lines(surf, CYAN, False, pts, 2)
-
-    # Draw goal
-    gx = int(inner.x + goal[1]*cell_w + cell_w/2)
-    gy = int(inner.y + goal[0]*cell_h + cell_h/2)
-    pygame.draw.circle(surf, RED, (gx, gy), int(cell_w*0.6))
-    surf.blit(font_sm.render("G", True, WHITE), (gx-4, gy-5))
-
-    # Draw rover as triangle (shows direction)
-    rx = inner.x + rover_pos[1] * cell_w + cell_w/2
-    ry = inner.y + rover_pos[0] * cell_h + cell_h/2
-    if len(trajectory) >= 2:
-        dy = trajectory[-1][0] - trajectory[-2][0]
-        dx = trajectory[-1][1] - trajectory[-2][1]
-        heading = math.atan2(dx, -dy) if (dx != 0 or dy != 0) else 0
-    else:
-        heading = 0
-    ts = max(int(cell_w*1.1), 6)
-    pts_t = [
-        (rx + ts * math.sin(heading),         ry - ts * math.cos(heading)),
-        (rx + ts * math.sin(heading+2.3),      ry - ts * math.cos(heading+2.3)),
-        (rx + ts * math.sin(heading-2.3),      ry - ts * math.cos(heading-2.3)),
-    ]
-    pygame.draw.polygon(surf, LIME, [(int(p[0]), int(p[1])) for p in pts_t])
-
-    # Step counter
-    status = "PAUSED" if paused else f"Step {step}"
-    surf.blit(font_sm.render(status, True, ORANGE if paused else CYAN),
-              (rect.x + rect.width - 80, rect.y + PANEL_PAD))
-
-
-def draw_status_bar(surf, rect, terrain_cls, h_score,
-                    cam_conf, lidar_conf, step, total_steps):
-    pygame.draw.rect(surf, (22, 22, 35), rect)
-    pygame.draw.line(surf, PANEL_EDGE, (rect.x, rect.y), (rect.x+rect.width, rect.y), 1)
-    font  = pygame.font.SysFont("monospace", 14, bold=True)
-    font2 = pygame.font.SysFont("monospace", 13)
-
-    # Agreement badge
-    diff = abs(cam_conf - lidar_conf)
-    if diff < 0.15:
-        badge_col, badge_text = GREEN, "✓ SENSORS AGREE"
-    elif diff < 0.35:
-        badge_col, badge_text = ORANGE, "~ MINOR CONFLICT"
-    else:
-        badge_col, badge_text = RED, "✗ SENSOR CONFLICT"
-
-    bw = 220
-    pygame.draw.rect(surf, badge_col, (rect.x+10, rect.y+8, bw, 44), border_radius=6)
-    surf.blit(font.render(badge_text, True, (10,10,10)),
-              (rect.x+18, rect.y+12))
-    surf.blit(font2.render(f"Δ={diff:.3f}", True, (10,10,10)),
-              (rect.x+18, rect.y+30))
-
-    # Terrain class
-    tc_col = TERRAIN_COLORS.get(terrain_cls, WHITE)
-    pygame.draw.rect(surf, tc_col, (rect.x+250, rect.y+8, 120, 44), border_radius=6)
-    surf.blit(font.render(terrain_cls[:8], True, (20,20,20)),
-              (rect.x+258, rect.y+22))
-
-    # H-score
-    hc = GREEN if h_score < 0.4 else ORANGE if h_score < 0.7 else RED
-    surf.blit(font.render(f"H-score: {h_score:.3f}", True, hc),
-              (rect.x+400, rect.y+12))
-
-    # Step progress
-    surf.blit(font2.render(f"Step {step}/{total_steps}", True, GREY),
-              (rect.x+400, rect.y+32))
-
-    # Controls
-    ctrl = "SPACE=pause  R=reset  Q=quit"
-    surf.blit(font2.render(ctrl, True, DARK_GREY),
-              (rect.x + rect.width - 320, rect.y + 20))
-
-
-# ─── Build a random cost map ───────────────────────────────────────────────────
+# ── Build cost map ─────────────────────────────────────────────────────────────
 def build_map(H=15, W=15, alpha=0.75, h_crit=0.7):
-    classes    = TERRAIN_NAMES
-    class_grid = [[random.choice(classes) for _ in range(W)] for _ in range(H)]
-    cost_map   = np.zeros((H, W))
+    grid     = [[random.choice(NAMES) for _ in range(W)] for _ in range(H)]
+    cost_map = np.zeros((H, W))
     for i in range(H):
         for j in range(W):
-            cls  = class_grid[i][j]
+            cls  = grid[i][j]
             geom = get_geometry(cls)
             h    = compute_hscore(geom["lidar_conf"] * 0.3, cls, alpha)
-            if h > h_crit:
-                cost_map[i, j] = 999
+            cost_map[i, j] = 999 if h > h_crit else (
+                0.3*config.TERRAIN_COST[cls]
+                + 0.2*geom["slope"]
+                + 0.2*geom["roughness"]
+                + 0.3*h
+            )
+    cost_map[0, 0] = cost_map[-1, -1] = 0.15
+    return cost_map, grid
+
+# ── Rover map panel ────────────────────────────────────────────────────────────
+def draw_map_panel(surf, rect, cost_map, class_grid, traj, theta_path,
+                   dstar_path, rover_pos, goal, step, paused, conflict):
+    draw_panel(surf, rect, "  Rover Navigation Map",
+               accent=GLOW_RED if conflict else GLOW_CYAN)
+    GH, GW = cost_map.shape
+    inner = pygame.Rect(rect.x+PAD, rect.y+30,
+                        rect.width-2*PAD, rect.height-42)
+    cw = inner.width / GW
+    ch = inner.height / GH
+
+    max_c = cost_map[cost_map < 999].max() if (cost_map < 999).any() else 1
+
+    for i in range(GH):
+        for j in range(GW):
+            c  = cost_map[i, j]
+            x_ = int(inner.x + j*cw)
+            y_ = int(inner.y + i*ch)
+            w_ = max(1, int(cw))
+            h_ = max(1, int(ch))
+            if c >= 999:
+                col = (35, 15, 15)
+                pygame.draw.rect(surf, col, (x_, y_, w_, h_))
+                pygame.draw.rect(surf, (55, 25, 25), (x_, y_, w_, h_), 1)
             else:
-                cost_map[i, j] = (0.3 * config.TERRAIN_COST[cls]
-                                 + 0.2 * geom["slope"]
-                                 + 0.2 * geom["roughness"]
-                                 + 0.3 * h)
-    cost_map[0, 0]   = 0.15
-    cost_map[-1, -1] = 0.15
-    return cost_map, class_grid
+                base = TERRAIN_COL.get(class_grid[i][j], (80, 80, 80))
+                t    = c / max_c
+                col  = tuple(int(b * (1 - 0.3*t)) for b in base)
+                pygame.draw.rect(surf, col, (x_, y_, w_, h_))
 
+    # Theta* path (white dots)
+    for p in theta_path:
+        px = int(inner.x + p[1]*cw + cw/2)
+        py = int(inner.y + p[0]*ch + ch/2)
+        pygame.draw.circle(surf, (180, 180, 180), (px, py), 2)
 
-# ─── Main simulation ───────────────────────────────────────────────────────────
+    # D* Lite replan path (glowing orange)
+    if dstar_path and len(dstar_path) > 1:
+        pts = [(int(inner.x + p[1]*cw + cw/2),
+                int(inner.y + p[0]*ch + ch/2)) for p in dstar_path]
+        for i in range(len(pts)-1):
+            glow_line(surf, GLOW_ORANGE, pts[i], pts[i+1], w=2, glow=5)
+
+    # Trajectory
+    if len(traj) > 1:
+        pts = [(int(inner.x + p[1]*cw + cw/2),
+                int(inner.y + p[0]*ch + ch/2)) for p in traj]
+        for i in range(len(pts)-1):
+            alpha = int(80 + 175 * i / len(pts))
+            col   = (40, alpha, alpha)
+            pygame.draw.line(surf, col, pts[i], pts[i+1], 2)
+
+    # Goal beacon (pulsing)
+    gx = int(inner.x + goal[1]*cw + cw/2)
+    gy = int(inner.y + goal[0]*ch + ch/2)
+    pulse = int(4 + 3 * math.sin(time.time() * 4))
+    glow_circle(surf, GLOW_RED, (gx, gy), pulse, w=2, glow=8)
+    surf.blit(font(10, True).render("G", True, WHITE), (gx-4, gy-5))
+
+    # Rover triangle
+    rx = inner.x + rover_pos[1]*cw + cw/2
+    ry = inner.y + rover_pos[0]*ch + ch/2
+    if len(traj) >= 2:
+        dy = traj[-1][0] - traj[-2][0]
+        dx = traj[-1][1] - traj[-2][1]
+        heading = math.atan2(dx, -dy) if (dx or dy) else 0
+    else:
+        heading = 0
+    ts = max(int(cw*1.3), 7)
+    tri = [
+        (rx + ts*math.sin(heading),      ry - ts*math.cos(heading)),
+        (rx + ts*math.sin(heading+2.3),  ry - ts*math.cos(heading+2.3)),
+        (rx + ts*math.sin(heading-2.3),  ry - ts*math.cos(heading-2.3)),
+    ]
+    # Glow
+    glow_col = GLOW_RED if conflict else LIME
+    pygame.draw.polygon(surf, tuple(c//3 for c in glow_col),
+                        [(int(p[0]), int(p[1])) for p in tri])
+    pygame.draw.polygon(surf, glow_col,
+                        [(int(p[0]), int(p[1])) for p in tri])
+
+    # Legend
+    lx, ly = rect.x + PAD, rect.y + rect.height - 26
+    pygame.draw.line(surf, (180,180,180), (lx, ly+4), (lx+18, ly+4), 1)
+    surf.blit(font(10).render("Theta*", True, GREY), (lx+22, ly))
+    lx2 = lx + 80
+    glow_line(surf, GLOW_ORANGE, (lx2, ly+4), (lx2+18, ly+4), w=2, glow=3)
+    surf.blit(font(10).render("D* replan", True, GREY), (lx2+22, ly))
+
+    # Status
+    st = "PAUSED" if paused else f"Step {step}/300"
+    surf.blit(font(11, True).render(st, True, GLOW_ORANGE if paused else GLOW_CYAN),
+              (rect.x + rect.width - 90, rect.y + PAD + 2))
+
+# ── CNN bar chart ──────────────────────────────────────────────────────────────
+def draw_cnn_panel(surf, rect, probs, cam_conf, entropy):
+    draw_panel(surf, rect, "  CNN Terrain Prediction", accent=GLOW_BLUE)
+    inner = rect.inflate(-2*PAD, -8)
+    inner.y += 30
+    inner.height -= 30
+
+    bh = 22
+    gap = 10
+    total_h = len(NAMES) * (bh + gap)
+    start_y = inner.y + (inner.height - total_h) // 2
+
+    for i, (cls, prob) in enumerate(zip(NAMES, probs)):
+        y = start_y + i*(bh+gap)
+        col = TERRAIN_COL[cls]
+        gc  = TERRAIN_GLOW[cls]
+
+        # Background track
+        draw_rounded(surf, DARK_GREY,
+                     pygame.Rect(inner.x+70, y, inner.width-70, bh), 5)
+        # Fill
+        fw = int((inner.width-70) * prob)
+        if fw > 0:
+            draw_rounded(surf, col,
+                         pygame.Rect(inner.x+70, y, fw, bh), 5)
+            # Glow edge
+            pygame.draw.rect(surf, gc,
+                             (inner.x+70+fw-3, y+2, 3, bh-4),
+                             border_radius=3)
+
+        # Label
+        surf.blit(font(11, True).render(cls[:8], True, col),
+                  (inner.x, y + 4))
+        # Value
+        surf.blit(font(11, True).render(f"{prob:.2f}", True, WHITE),
+                  (inner.x + inner.width - 35, y + 4))
+
+    # Confidence arc at bottom
+    cy = inner.y + inner.height - 18
+    surf.blit(font(11).render(f"Conf: {cam_conf:.2f}", True, GLOW_GREEN), (inner.x, cy))
+    pct_bar(surf, pygame.Rect(inner.x+80, cy+3, inner.width-80, 10),
+            cam_conf, GLOW_GREEN)
+
+# ── LiDAR bar panel ────────────────────────────────────────────────────────────
+def draw_lidar_panel(surf, rect, geom, hscore):
+    draw_panel(surf, rect, "  LiDAR Geometry", accent=GLOW_PURPLE)
+    inner = rect.inflate(-2*PAD, -8)
+    inner.y += 30
+
+    vals  = [geom["slope"], geom["roughness"], geom["lidar_conf"], min(hscore, 1.0)]
+    lbls  = ["Slope", "Roughness", "LiDAR Conf", "H-Score"]
+    cols  = [GLOW_CYAN, GLOW_PURPLE, GLOW_GREEN, GLOW_RED]
+
+    bh = 20
+    gap = 14
+    for i, (v, lbl, col) in enumerate(zip(vals, lbls, cols)):
+        y = inner.y + i*(bh+gap)
+        surf.blit(font(11, True).render(lbl, True, GREY), (inner.x, y))
+        bar_rect = pygame.Rect(inner.x+90, y+2, inner.width-130, bh-4)
+        pct_bar(surf, bar_rect, v, col)
+        surf.blit(font(11, True).render(f"{v:.2f}", True, col),
+                  (inner.x + inner.width - 35, y+2))
+
+# ── Terrain image panel ────────────────────────────────────────────────────────
+def draw_terrain_panel(surf, rect, img_surf, cls, entropy):
+    tc = TERRAIN_COL.get(cls, WHITE)
+    draw_panel(surf, rect, "  Terrain Image", accent=tc)
+    ih = rect.height - 38
+    t_surf = pygame.transform.scale(img_surf, (rect.width-4, ih))
+    surf.blit(t_surf, (rect.x+2, rect.y+30))
+
+    # Entropy overlay (red tint when uncertain)
+    ov = pygame.Surface((rect.width-4, ih), pygame.SRCALPHA)
+    ov.fill((220, 30, 30, int(entropy * 160)))
+    surf.blit(ov, (rect.x+2, rect.y+30))
+
+    # Class badge
+    badge = pygame.Rect(rect.x+PAD, rect.y+rect.height-30, 130, 22)
+    draw_rounded(surf, tc, badge, 6)
+    surf.blit(font(12, True).render(cls, True, (20,20,20)),
+              (badge.x+8, badge.y+4))
+
+# ── Camera sensor panel ────────────────────────────────────────────────────────
+def draw_camera_panel(surf, rect, probs, entropy, cam_conf, img_surf):
+    draw_panel(surf, rect, "  Camera Sensor", accent=GLOW_BLUE)
+
+    # Donut chart
+    cx = rect.x + rect.width//2 - 30
+    cy = rect.y + 110
+    ro, ri = 60, 36
+    ang = -math.pi/2
+    for prob, cls in zip(probs, NAMES):
+        end = ang + 2*math.pi*prob
+        col = TERRAIN_COL[cls]
+        for deg in range(int(math.degrees(ang)), int(math.degrees(end)), 2):
+            rad = math.radians(deg)
+            for rv in range(ri, ro):
+                px = cx + int(rv*math.cos(rad))
+                py = cy + int(rv*math.sin(rad))
+                if 0 <= px < W and 0 <= py < H:
+                    surf.set_at((px, py), col)
+        ang = end
+
+    # Inner circle
+    pygame.draw.circle(surf, PANEL, (cx, cy), ri)
+    dominant = NAMES[int(np.argmax(probs))]
+    dc = TERRAIN_COL[dominant]
+    surf.blit(font(10, True).render(dominant[:4], True, dc), (cx-16, cy-6))
+
+    # Thumbnail with entropy overlay (top right)
+    th = 80
+    tx = rect.x + rect.width - th - PAD
+    ty = rect.y + 34
+    thumb = pygame.transform.scale(img_surf, (th, th))
+    surf.blit(thumb, (tx, ty))
+    ov = pygame.Surface((th, th), pygame.SRCALPHA)
+    ov.fill((255, 40, 40, int(entropy * 200)))
+    surf.blit(ov, (tx, ty))
+    pygame.draw.rect(surf, GLOW_RED if entropy > 0.5 else GLOW_GREEN,
+                     (tx, ty, th, th), 2)
+    surf.blit(font(9).render("uncertainty", True, GREY), (tx, ty+th+2))
+
+    # Entropy bar
+    ey = rect.y + 190
+    ec = GLOW_GREEN if entropy < 0.3 else GLOW_ORANGE if entropy < 0.65 else GLOW_RED
+    surf.blit(font(12, True).render(f"Entropy: {entropy:.3f}", True, ec),
+              (rect.x+PAD, ey))
+    pct_bar(surf, pygame.Rect(rect.x+PAD, ey+20, rect.width-2*PAD, 10),
+            entropy/1.4, ec)
+
+    # Confidence
+    surf.blit(font(11).render(f"Cam conf: {cam_conf:.2f}", True, GLOW_GREEN),
+              (rect.x+PAD, ey+38))
+    pct_bar(surf, pygame.Rect(rect.x+PAD, ey+54, rect.width-2*PAD, 8),
+            cam_conf, GLOW_GREEN)
+
+# ── LiDAR radar + gauge ────────────────────────────────────────────────────────
+def draw_lidar_sensor_panel(surf, rect, geom, hscore):
+    draw_panel(surf, rect, "  LiDAR Analysis", accent=GLOW_PURPLE)
+
+    # Radar chart
+    cx = rect.centerx
+    cy = rect.y + 130
+    rm = 70
+    vals  = [geom["slope"], geom["roughness"], geom["lidar_conf"], min(hscore,1)]
+    lbls  = ["slope", "rough", "lidar", "H"]
+    radar_col = (40,180,220) if hscore < 0.4 else \
+                (220,160,40) if hscore < 0.7 else (220,60,60)
+
+    # Grid rings
+    for ring in [0.33, 0.66, 1.0]:
+        pts = []
+        for i in range(4):
+            a  = math.pi/2 + 2*math.pi*i/4
+            pts.append((int(cx+ring*rm*math.cos(a)), int(cy-ring*rm*math.sin(a))))
+        pygame.draw.polygon(surf, DARK_GREY, pts, 1)
+
+    # Axes + labels
+    for i in range(4):
+        a  = math.pi/2 + 2*math.pi*i/4
+        ex = cx + rm*math.cos(a)
+        ey = cy - rm*math.sin(a)
+        pygame.draw.line(surf, DARK_GREY, (cx,cy), (int(ex),int(ey)), 1)
+        lx = cx + (rm+16)*math.cos(a) - 14
+        ly = cy - (rm+16)*math.sin(a) - 6
+        surf.blit(font(10).render(lbls[i], True, GREY), (int(lx), int(ly)))
+
+    # Filled polygon
+    pts = []
+    for i, v in enumerate(vals):
+        a  = math.pi/2 + 2*math.pi*i/4
+        pts.append((int(cx+v*rm*math.cos(a)), int(cy-v*rm*math.sin(a))))
+    if len(pts) >= 3:
+        s = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+        lp = [(p[0]-rect.x, p[1]-rect.y) for p in pts]
+        pygame.draw.polygon(s, (*radar_col, 90), lp)
+        pygame.draw.polygon(s, (*radar_col, 200), lp, 2)
+        surf.blit(s, (rect.x, rect.y))
+
+    # H-score gauge (mini speedometer)
+    gx, gy = cx, rect.y + rect.height - 55
+    gr = 40
+    for deg in range(0, 180, 3):
+        t = deg/180
+        a = math.pi - math.radians(deg)
+        c = (int(50+200*t), int(220-160*t), 60) if t < 0.5 else \
+            (int(150+100*(t-.5)*2), int(60+60*(1-(t-.5)*2)), 60)
+        x1 = gx+(gr-6)*math.cos(a); y1 = gy-(gr-6)*math.sin(a)
+        x2 = gx+gr*math.cos(a);     y2 = gy-gr*math.sin(a)
+        pygame.draw.line(surf, c, (int(x1),int(y1)), (int(x2),int(y2)), 3)
+
+    na = math.pi - math.pi*max(0,min(1,hscore))
+    nx = gx+(gr-3)*math.cos(na); ny = gy-(gr-3)*math.sin(na)
+    pygame.draw.line(surf, WHITE, (gx,gy), (int(nx),int(ny)), 2)
+    pygame.draw.circle(surf, WHITE, (gx,gy), 4)
+
+    hc = GLOW_GREEN if hscore < 0.4 else GLOW_ORANGE if hscore < 0.7 else GLOW_RED
+    surf.blit(font(14, True).render(f"{hscore:.3f}", True, hc), (gx-22, gy-12))
+    surf.blit(font(9).render("H-score", True, GREY), (gx-18, gy+6))
+
+# ── Status bar ─────────────────────────────────────────────────────────────────
+def draw_status(surf, rect, cls, hscore, cam_conf, lidar_conf, step,
+                conflict, dstar_triggered, tick):
+    pygame.draw.rect(surf, (12, 14, 26), rect)
+    pygame.draw.line(surf, BORDER, rect.topleft,
+                     (rect.x+rect.width, rect.y), 1)
+
+    diff = abs(cam_conf - lidar_conf)
+    if diff < 0.15:
+        bc, bt = GLOW_GREEN, "✓  SENSORS AGREE"
+    elif diff < 0.35:
+        bc, bt = GLOW_ORANGE, "~  MINOR CONFLICT"
+    else:
+        bc, bt = GLOW_RED, "✗  SENSOR CONFLICT"
+
+    # Pulse effect on conflict
+    if conflict:
+        pulse = int(200 + 55 * math.sin(tick * 0.3))
+        bc = (pulse, 50, 50)
+
+    bw = 240
+    draw_rounded(surf, bc, pygame.Rect(rect.x+10, rect.y+8, bw, 40), 8)
+    surf.blit(font(13, True).render(bt, True, (10,10,10)),
+              (rect.x+20, rect.y+14))
+    surf.blit(font(10).render(f"Δ={diff:.3f}", True, (10,10,10)),
+              (rect.x+20, rect.y+30))
+
+    # Terrain badge
+    tc = TERRAIN_COL.get(cls, WHITE)
+    draw_rounded(surf, tc, pygame.Rect(rect.x+270, rect.y+8, 120, 40), 8)
+    surf.blit(font(12, True).render(cls, True, (20,20,20)),
+              (rect.x+278, rect.y+22))
+
+    # H-score
+    hc = GLOW_GREEN if hscore < 0.4 else GLOW_ORANGE if hscore < 0.7 else GLOW_RED
+    surf.blit(font(14, True).render(f"H: {hscore:.3f}", True, hc),
+              (rect.x+415, rect.y+10))
+
+    # Progress bar
+    pbar = pygame.Rect(rect.x+415, rect.y+32, 160, 10)
+    pct_bar(surf, pbar, step/300, GLOW_CYAN)
+    surf.blit(font(10).render(f"Step {step}/300", True, GREY),
+              (rect.x+580, rect.y+29))
+
+    # D* indicator
+    if dstar_triggered:
+        surf.blit(font(12, True).render("D* REPLAN", True, GLOW_ORANGE),
+                  (rect.x+680, rect.y+18))
+
+    # Controls
+    surf.blit(font(11).render("SPACE=pause  R=reset  Q=quit", True, DARK_GREY),
+              (rect.x + rect.width - 290, rect.y + 20))
+
+# ── Main ───────────────────────────────────────────────────────────────────────
 def main():
     pygame.init()
-    screen = pygame.display.set_mode((W_SCREEN, H_SCREEN))
+    screen = pygame.display.set_mode((W, H))
     pygame.display.set_caption("ANS Mars Rover — Live Simulation")
     clock  = pygame.time.Clock()
 
-    # Load real terrain images (with synthetic fallback)
     IMG_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'sample_images')
-    TERRAIN_SURFS = load_terrain_images(IMG_DIR)
+    IMGS    = load_images(IMG_DIR)
 
-    # Load RL agent
     agent    = DoubleDQN()
     dqn_path = os.path.join(os.path.dirname(__file__), "..", "models", "dqn_rover.pt")
     if os.path.exists(dqn_path):
         agent.online_net.load_state_dict(torch.load(dqn_path, map_location="cpu"))
         print("Loaded trained RL agent")
-    else:
-        print("No trained agent found — using random policy")
     agent.epsilon = 0.05
 
     def reset_sim():
-        cost_map, class_grid = build_map()
-        H, W  = cost_map.shape
-        start = (0, 0)
-        goal  = (H-1, W-1)
-        env   = MarsRoverEnv(cost_map, start, goal)
+        cm, cg = build_map()
+        GH, GW = cm.shape
+        s, g   = (0,0), (GH-1, GW-1)
+        env    = MarsRoverEnv(cm, s, g)
         env.reset()
-        planner   = ThetaStar(cost_map)
-        plan_path = planner.find_path(start, goal)
-        state     = env.get_state()
-        return env, cost_map, class_grid, plan_path, state, start, goal
+        ts     = ThetaStar(cm)
+        tp     = ts.find_path(s, g)
+        dl     = DStarLite(cm.copy())
+        dl.find_path(s, g)
+        return env, cm, cg, tp, dl, [], env.get_state(), s, g
 
-    env, cost_map, class_grid, plan_path, state, start, goal = reset_sim()
-    H, W = cost_map.shape
+    env, cost_map, class_grid, theta_path, dl, dstar_path, state, start, goal = reset_sim()
+    GH, GW = cost_map.shape
 
-    trajectory    = [tuple(env.current_pos)]
+    traj          = [tuple(env.current_pos)]
     paused        = False
     done          = False
     step          = 0
-    max_steps     = 300
-    last_step_t   = time.time()
+    last_t        = time.time()
+    tick          = 0
 
-    # Current cell sensor readings
     cur_cls       = "bedrock"
     cur_geom      = get_geometry(cur_cls)
     cur_entropy   = 0.3
     cur_cam_conf  = 0.85
     cur_hscore    = 0.2
     cur_probs     = [0.05, 0.80, 0.10, 0.05]
+    conflict      = False
+    dstar_active  = False
 
     running = True
     while running:
-        dt = clock.tick(FPS) / 1000.0
+        clock.tick(FPS)
+        tick += 1
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
+        for ev in pygame.event.get():
+            if ev.type == pygame.QUIT:
                 running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_q, pygame.K_ESCAPE):
+            elif ev.type == pygame.KEYDOWN:
+                if ev.key in (pygame.K_q, pygame.K_ESCAPE):
                     running = False
-                elif event.key == pygame.K_SPACE:
+                elif ev.key == pygame.K_SPACE:
                     paused = not paused
-                elif event.key == pygame.K_r:
-                    env, cost_map, class_grid, plan_path, state, start, goal = reset_sim()
-                    H, W       = cost_map.shape
-                    trajectory = [tuple(env.current_pos)]
-                    step, done = 0, False
-                    last_step_t = time.time()
+                elif ev.key == pygame.K_r:
+                    env, cost_map, class_grid, theta_path, dl, dstar_path, \
+                        state, start, goal = reset_sim()
+                    GH, GW = cost_map.shape
+                    traj   = [tuple(env.current_pos)]
+                    step = 0; done = False; dstar_active = False; conflict = False
+                    last_t = time.time()
 
-        # Advance rover
-        if not paused and not done and (time.time() - last_step_t) >= STEP_DELAY:
+        # ── Step rover ────────────────────────────────────────────────────────
+        if not paused and not done and (time.time() - last_t) >= STEP_DELAY:
             action            = agent.select_action(state)
             state, reward, done = env.step(action)
             step += 1
-            trajectory.append(tuple(env.current_pos))
-            last_step_t = time.time()
+            traj.append(tuple(env.current_pos))
+            last_t = time.time()
 
-            # Update sensor readings for current cell
-            ri  = int(np.clip(env.current_pos[0], 0, H-1))
-            ci  = int(np.clip(env.current_pos[1], 0, W-1))
+            ri = int(np.clip(env.current_pos[0], 0, GH-1))
+            ci = int(np.clip(env.current_pos[1], 0, GW-1))
             cur_cls  = class_grid[ri][ci]
             cur_geom = get_geometry(cur_cls)
 
-            # Simulate CNN probabilities with noise
-            base_probs = {"soil":0.05,"bedrock":0.05,"sand":0.05,"big_rocks":0.05}
-            base_probs[cur_cls] = 0.75
-            raw = np.array([base_probs[c] + random.uniform(0,0.12) for c in TERRAIN_NAMES])
+            # Simulate CNN probabilities
+            bp = {c: 0.05 for c in NAMES}
+            bp[cur_cls] = 0.75
+            raw = np.array([bp[c] + random.uniform(0, 0.12) for c in NAMES])
             raw /= raw.sum()
-            cur_probs     = raw.tolist()
-            cur_cam_conf  = max(cur_probs)
-            cur_entropy   = -sum(p * math.log(p+1e-8) for p in cur_probs)
-            cur_entropy   = min(cur_entropy / math.log(4), 1.0)
-            u_fused       = compute_fusion(cur_entropy, cur_cam_conf,
-                                           cur_geom["lidar_conf"], beta=0.5)
-            cur_hscore    = compute_hscore(u_fused, cur_cls, alpha=0.75)
+            cur_probs    = raw.tolist()
+            cur_cam_conf = max(cur_probs)
+            cur_entropy  = min(-sum(p*math.log(p+1e-8) for p in cur_probs)/math.log(4), 1.0)
 
-            if done and step < max_steps:
-                paused = True  # pause at end so user can see result
+            u_fused   = compute_fusion(cur_entropy, cur_cam_conf,
+                                       cur_geom["lidar_conf"], beta=0.5)
+            cur_hscore = compute_hscore(u_fused, cur_cls, alpha=0.75)
 
-        # ── DRAW ──────────────────────────────────────────────────────────────
+            # ── D* Lite replanning on sensor conflict ──────────────────────
+            diff = abs(cur_cam_conf - cur_geom["lidar_conf"])
+            conflict = diff > 0.35
+
+            if conflict:
+                # Penalize current cell — raise cost to discourage this area
+                new_cost = min(cost_map[ri, ci] * 2.5 + 0.3, 998)
+                dstar_path = dl.update_cell((ri, ci), new_cost)
+                dstar_active = True
+            else:
+                dstar_active = len(dstar_path) > 0
+
+            if done:
+                paused = True
+
+        # ── Draw ──────────────────────────────────────────────────────────────
         screen.fill(BG)
 
-        # Row separators
-        sep_y = H_ROW
-        pygame.draw.line(screen, PANEL_EDGE, (0, sep_y), (W_SCREEN, sep_y), 1)
-        pygame.draw.line(screen, PANEL_EDGE, (W_LEFT, 0), (W_LEFT, H_SCREEN-H_STATUS), 1)
-        pygame.draw.line(screen, PANEL_EDGE, (W_LEFT+W_MID, 0), (W_LEFT+W_MID, H_SCREEN-H_STATUS), 1)
+        # Subtle grid background
+        for gx in range(0, W, 40):
+            pygame.draw.line(screen, (18, 20, 32), (gx, 0), (gx, H), 1)
+        for gy in range(0, H, 40):
+            pygame.draw.line(screen, (18, 20, 32), (0, gy), (W, gy), 1)
 
         # Row labels
-        font_row = pygame.font.SysFont("monospace", 12, bold=True)
-        screen.blit(font_row.render("ROW 1 — SIMULATION VIEW", True, DARK_GREY), (8, 4))
-        screen.blit(font_row.render("ROW 2 — SENSOR VIEW", True, DARK_GREY), (8, H_ROW+4))
+        screen.blit(font(11, True).render("ROW 1 — SIMULATION", True, DARK_GREY),
+                    (PAD, 4))
+        screen.blit(font(11, True).render("ROW 2 — SENSOR VIEW", True, DARK_GREY),
+                    (PAD, H_ROW+4))
 
-        pad = PANEL_PAD
+        # Dividers
+        pygame.draw.line(screen, BORDER, (0, H_ROW), (W, H_ROW), 1)
+        pygame.draw.line(screen, BORDER, (W_LEFT, 0), (W_LEFT, H-H_STATUS), 1)
+        pygame.draw.line(screen, BORDER, (W_LEFT+W_MID, 0),
+                         (W_LEFT+W_MID, H-H_STATUS), 1)
 
-        # ── ROW 1 ─────────────────────────────────────────────────────────────
-        # Left: rover map
-        r1_left = pygame.Rect(pad, 18, W_LEFT-2*pad, H_ROW-22)
-        draw_rover_map(screen, r1_left, cost_map, trajectory, plan_path,
-                       env.current_pos, goal, step, paused,
-                       title="Rover Navigation Map")
+        p = PAD
+        # ROW 1
+        r1l = pygame.Rect(p, 18, W_LEFT-2*p, H_ROW-22)
+        draw_map_panel(screen, r1l, cost_map, class_grid, traj,
+                       theta_path, dstar_path, env.current_pos,
+                       goal, step, paused, conflict)
 
-        # Middle: CNN terrain prediction
-        r1_mid = pygame.Rect(W_LEFT+pad, 18, W_MID-2*pad, H_ROW-22)
-        bar_cols = [TERRAIN_COLORS[c] for c in TERRAIN_NAMES]
-        draw_bar_chart(screen, r1_mid, cur_probs, TERRAIN_NAMES, bar_cols,
-                       title="CNN Terrain Prediction")
+        r1m = pygame.Rect(W_LEFT+p, 18, W_MID-2*p, H_ROW-22)
+        draw_cnn_panel(screen, r1m, cur_probs, cur_cam_conf, cur_entropy)
 
-        # Right: LiDAR geometry reading
-        r1_right = pygame.Rect(W_LEFT+W_MID+pad, 18, W_RIGHT-2*pad, H_ROW-22)
-        lidar_vals = [
-            cur_geom["slope"],
-            cur_geom["roughness"],
-            cur_geom["lidar_conf"],
-            min(cur_hscore, 1.0),
-        ]
-        lidar_cols = [CYAN, PURPLE, GREEN, RED]
-        lidar_lbls = ["slope", "rough", "lidar", "H-sc"]
-        draw_bar_chart(screen, r1_right, lidar_vals, lidar_lbls, lidar_cols,
-                       title="LiDAR Geometry Reading")
+        r1r = pygame.Rect(W_LEFT+W_MID+p, 18, W_RIGHT-2*p, H_ROW-22)
+        draw_lidar_panel(screen, r1r, cur_geom, cur_hscore)
 
-        # ── ROW 2 ─────────────────────────────────────────────────────────────
-        row2_y = H_ROW + 18
+        # ROW 2
+        r2y = H_ROW + 18
+        r2l = pygame.Rect(p, r2y, W_LEFT-2*p, H_ROW-22)
+        draw_terrain_panel(screen, r2l, IMGS[cur_cls], cur_cls, cur_entropy)
 
-        # Left: actual terrain image (fills panel minus title bar)
-        r2_left = pygame.Rect(pad, row2_y, W_LEFT-2*pad, H_ROW-22)
-        draw_panel(screen, r2_left, title="Terrain Image (Current Cell)")
-        title_h = 28
-        img_rect = pygame.Rect(r2_left.x+2, r2_left.y+title_h,
-                               r2_left.width-4, r2_left.height-title_h-2)
-        t_surf   = pygame.transform.scale(TERRAIN_SURFS[cur_cls],
-                                          (img_rect.width, img_rect.height))
-        screen.blit(t_surf, (img_rect.x, img_rect.y))
-        font_cls = pygame.font.SysFont("monospace", 15, bold=True)
-        tc_col   = TERRAIN_COLORS[cur_cls]
-        pygame.draw.rect(screen, tc_col,
-                         (r2_left.x+10, r2_left.y+r2_left.height-28, 140, 20),
-                         border_radius=4)
-        screen.blit(font_cls.render(cur_cls, True, (20,20,20)),
-                    (r2_left.x+16, r2_left.y+r2_left.height-26))
+        r2m = pygame.Rect(W_LEFT+p, r2y, W_MID-2*p, H_ROW-22)
+        draw_camera_panel(screen, r2m, cur_probs, cur_entropy,
+                          cur_cam_conf, IMGS[cur_cls])
 
-        # Middle: Camera — confidence ring + entropy gauge
-        r2_mid = pygame.Rect(W_LEFT+pad, row2_y, W_MID-2*pad, H_ROW-22)
-        draw_panel(screen, r2_mid, title="Camera Sensor")
+        r2r = pygame.Rect(W_LEFT+W_MID+p, r2y, W_RIGHT-2*p, H_ROW-22)
+        draw_lidar_sensor_panel(screen, r2r, cur_geom, cur_hscore)
 
-        # Confidence donut chart
-        cx_d = r2_mid.x + r2_mid.width // 2
-        cy_d = r2_mid.y + 85
-        r_out, r_in = 55, 32
-        start_angle = -math.pi / 2
-        for i, (prob, cls) in enumerate(zip(cur_probs, TERRAIN_NAMES)):
-            end_angle = start_angle + 2 * math.pi * prob
-            col = TERRAIN_COLORS[cls]
-            for deg in range(int(math.degrees(start_angle)),
-                             int(math.degrees(end_angle)), 2):
-                rad = math.radians(deg)
-                for r_val in range(r_in, r_out):
-                    px = cx_d + int(r_val * math.cos(rad))
-                    py = cy_d + int(r_val * math.sin(rad))
-                    screen.set_at((px, py), col)
-            start_angle = end_angle
+        # Status bar
+        draw_status(screen,
+                    pygame.Rect(0, H-H_STATUS, W, H_STATUS),
+                    cur_cls, cur_hscore, cur_cam_conf,
+                    cur_geom["lidar_conf"], step,
+                    conflict, dstar_active, tick)
 
-        # Small terrain thumbnail with entropy overlay (top-right of Camera panel)
-        thumb_size  = 80
-        thumb_x     = r2_mid.x + r2_mid.width - thumb_size - 10
-        thumb_y     = r2_mid.y + 28
-        thumb_surf  = pygame.transform.scale(TERRAIN_SURFS[cur_cls],
-                                             (thumb_size, thumb_size))
-        screen.blit(thumb_surf, (thumb_x, thumb_y))
-        overlay = pygame.Surface((thumb_size, thumb_size), pygame.SRCALPHA)
-        overlay.fill((255, 0, 0, int(cur_entropy * 180)))
-        screen.blit(overlay, (thumb_x, thumb_y))
-        pygame.draw.rect(screen, DARK_GREY,
-                         (thumb_x, thumb_y, thumb_size, thumb_size), 1)
-
-        # Entropy indicator
-        ent_col = GREEN if cur_entropy < 0.3 else ORANGE if cur_entropy < 0.65 else RED
-        font_e  = pygame.font.SysFont("monospace", 13, bold=True)
-        font_e2 = pygame.font.SysFont("monospace", 11)
-        screen.blit(font_e.render(f"Entropy: {cur_entropy:.3f}", True, ent_col),
-                    (r2_mid.x+pad, r2_mid.y+150))
-        screen.blit(font_e2.render("LOW=confident  HIGH=uncertain", True, DARK_GREY),
-                    (r2_mid.x+pad, r2_mid.y+166))
-
-        # Cam conf bar
-        bw = r2_mid.width - 20
-        bh = 14
-        by = r2_mid.y + 190
-        pygame.draw.rect(screen, DARK_GREY, (r2_mid.x+10, by, bw, bh), border_radius=4)
-        pygame.draw.rect(screen, GREEN,
-                         (r2_mid.x+10, by, int(bw*cur_cam_conf), bh), border_radius=4)
-        screen.blit(font_e2.render(f"Cam conf: {cur_cam_conf:.2f}", True, WHITE),
-                    (r2_mid.x+10, by+16))
-
-        # Right: LiDAR — radar chart + H-score speedometer
-        r2_right = pygame.Rect(W_LEFT+W_MID+pad, row2_y, W_RIGHT-2*pad, H_ROW-22)
-        r2_radar = pygame.Rect(r2_right.x, r2_right.y,
-                               r2_right.width, r2_right.height//2 + 20)
-        r2_gauge = pygame.Rect(r2_right.x, r2_right.y + r2_right.height//2 + 20,
-                               r2_right.width, r2_right.height//2 - 20)
-
-        radar_color = (40, 180, 220) if cur_hscore < 0.4 else \
-                      (220, 160, 40) if cur_hscore < 0.7 else (220, 60, 60)
-
-        draw_radar(screen, r2_radar,
-                   [cur_geom["slope"], cur_geom["roughness"],
-                    cur_geom["lidar_conf"], min(cur_hscore, 1.0)],
-                   ["slope", "rough", "lidar", "H"],
-                   radar_color, title="LiDAR Radar")
-
-        draw_gauge(screen, r2_gauge, min(cur_hscore, 1.0),
-                   title="H-score Gauge", label="danger")
-
-        # ── Status bar ────────────────────────────────────────────────────────
-        status_rect = pygame.Rect(0, H_SCREEN-H_STATUS, W_SCREEN, H_STATUS)
-        draw_status_bar(screen, status_rect, cur_cls, cur_hscore,
-                        cur_cam_conf, cur_geom["lidar_conf"],
-                        step, max_steps)
-
-        # Mission complete overlay
+        # Mission overlay
         if done:
-            font_big = pygame.font.SysFont("monospace", 36, bold=True)
-            msg      = "MISSION COMPLETE!" if step < max_steps else "MAX STEPS REACHED"
-            col_msg  = GREEN if step < max_steps else ORANGE
-            txt      = font_big.render(msg, True, col_msg)
-            screen.blit(txt, (W_SCREEN//2 - txt.get_width()//2, H_SCREEN//2 - 20))
-            sub = pygame.font.SysFont("monospace", 16).render(
-                "Press R to run again", True, WHITE)
-            screen.blit(sub, (W_SCREEN//2 - sub.get_width()//2, H_SCREEN//2 + 30))
+            s = pygame.Surface((W, H), pygame.SRCALPHA)
+            s.fill((0, 0, 0, 120))
+            screen.blit(s, (0, 0))
+            msg = "MISSION COMPLETE!" if reward > 0 else "MISSION FAILED"
+            col = GLOW_GREEN if reward > 0 else GLOW_RED
+            txt = font(48, True).render(msg, True, col)
+            screen.blit(txt, (W//2 - txt.get_width()//2, H//2 - 40))
+            sub = font(18).render("Press R to run again", True, WHITE)
+            screen.blit(sub, (W//2 - sub.get_width()//2, H//2 + 30))
 
         pygame.display.flip()
 
     pygame.quit()
-
 
 if __name__ == "__main__":
     main()
