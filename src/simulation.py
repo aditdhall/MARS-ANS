@@ -7,7 +7,9 @@ Controls:
   Q/ESC  — quit
 """
 
-import math, os, random, sys, time
+import json, math, os, random, sys, time
+import urllib.error
+import urllib.request
 import numpy as np
 import pygame
 
@@ -170,6 +172,25 @@ def load_images(img_dir):
             s.fill(TERRAIN_COL[cls])
             surfs[cls] = s
     return surfs
+
+
+def infer_from_server(terrain_class, server_url="http://localhost:5000"):
+    """Call cluster inference server. Returns (probs, entropy, cam_conf, stem)
+    or None if server unavailable."""
+    try:
+        data = json.dumps({"terrain_class": terrain_class}).encode()
+        req  = urllib.request.Request(
+            f"{server_url}/infer",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            result = json.loads(resp.read())
+        return (result["probs"], result["entropy"],
+                result["cam_conf"], result["image_stem"])
+    except Exception:
+        return None
 
 # ── Build cost map ─────────────────────────────────────────────────────────────
 def build_map(H=15, W=15, alpha=0.75, h_crit=0.7, start=None, goal=None):
@@ -576,6 +597,15 @@ def main():
     IMG_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'sample_images')
     IMGS    = load_images(IMG_DIR)
 
+    SERVER_URL = "http://localhost:5000"
+    server_online = False
+    try:
+        with urllib.request.urlopen(f"{SERVER_URL}/health", timeout=1) as r:
+            server_online = json.loads(r.read()).get("status") == "ok"
+    except Exception:
+        pass
+    print(f"Inference server: {'ONLINE' if server_online else 'OFFLINE (using simulation)'}")
+
     agent    = DoubleDQN()
     dqn_path = os.path.join(os.path.dirname(__file__), "..", "models", "dqn_rover.pt")
     if os.path.exists(dqn_path):
@@ -681,14 +711,21 @@ def main():
             else:
                 preview_cls = cur_cls
 
-            # Simulate CNN probabilities
-            bp = {c: 0.05 for c in NAMES}
-            bp[cur_cls] = 0.75
-            raw = np.array([bp[c] + random.uniform(0, 0.12) for c in NAMES])
-            raw /= raw.sum()
-            cur_probs    = raw.tolist()
-            cur_cam_conf = max(cur_probs)
-            cur_entropy  = min(-sum(p*math.log(p+1e-8) for p in cur_probs)/math.log(4), 1.0)
+            if server_online:
+                result = infer_from_server(cur_cls, SERVER_URL)
+                if result:
+                    cur_probs, cur_entropy, cur_cam_conf, cur_stem = result
+                else:
+                    server_online = False
+            if not server_online:
+                # Simulate CNN probabilities (fallback)
+                bp = {c: 0.05 for c in NAMES}
+                bp[cur_cls] = 0.75
+                raw = np.array([bp[c] + random.uniform(0, 0.12) for c in NAMES])
+                raw /= raw.sum()
+                cur_probs    = raw.tolist()
+                cur_cam_conf = max(cur_probs)
+                cur_entropy  = min(-sum(p*math.log(p+1e-8) for p in cur_probs)/math.log(4), 1.0)
 
             u_fused   = compute_fusion(cur_entropy, cur_cam_conf,
                                        cur_geom["lidar_conf"], beta=0.5)
