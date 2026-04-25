@@ -71,7 +71,9 @@ def visualize_result(cost_map, trajectory, start, goal,
     axes[1].set_ylabel("reward")
     axes[1].grid(True, alpha=0.3)
 
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    dir_name = os.path.dirname(save_path)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
     fig.tight_layout()
     fig.savefig(save_path, dpi=100, bbox_inches='tight')
     plt.close()

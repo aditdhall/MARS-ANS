@@ -193,7 +193,7 @@ def infer_from_server(terrain_class, server_url="http://localhost:5000"):
         return None
 
 # ── Build cost map ─────────────────────────────────────────────────────────────
-def build_map(H=15, W=15, alpha=0.75, h_crit=0.7, start=None, goal=None):
+def build_map(H=15, W=15, alpha=config.ALPHA, h_crit=config.H_CRIT, start=None, goal=None):
     grid     = [[random.choice(NAMES) for _ in range(W)] for _ in range(H)]
     cost_map = np.zeros((H, W))
     for i in range(H):
@@ -632,7 +632,7 @@ def main():
     agent    = DoubleDQN()
     dqn_path = os.path.join(os.path.dirname(__file__), "..", "models", "dqn_rover.pt")
     if os.path.exists(dqn_path):
-        agent.online_net.load_state_dict(torch.load(dqn_path, map_location="cpu"))
+        agent.online_net.load_state_dict(torch.load(dqn_path, map_location="cpu", weights_only=True))
         print("Loaded trained RL agent")
     agent.epsilon = 0.05
 
@@ -753,7 +753,7 @@ def main():
 
             u_fused   = compute_fusion(cur_entropy, cur_cam_conf,
                                        cur_geom["lidar_conf"], beta=0.5)
-            cur_hscore = compute_hscore(u_fused, cur_cls, alpha=0.75)
+            cur_hscore = compute_hscore(u_fused, cur_cls, alpha=config.ALPHA)
 
             # ── D* Lite replanning on fused uncertainty ────────────────────
             # Conflict: CNN's top class disagrees with lidar's terrain read,

@@ -79,8 +79,9 @@ if run:
             done, steps = False, 0
             while not done and steps < 300:
                 action          = agent.select_action(state)
-                state, reward, done = env.step(action)
-                agent.store(state, action, reward, state, done)
+                next_state, reward, done = env.step(action)
+                agent.store(state, action, reward, next_state, done)
+                state = next_state
                 agent.train_step()
                 steps += 1
             agent.update_epsilon()

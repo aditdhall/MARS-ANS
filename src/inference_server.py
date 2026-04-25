@@ -46,7 +46,7 @@ def build_class_index():
 print(f"Loading model on {DEVICE} ...")
 clf   = TerrainClassifier()
 model = clf.get_model()
-model.load_state_dict(torch.load(MODEL_P, map_location=DEVICE))
+model.load_state_dict(torch.load(MODEL_P, map_location=DEVICE, weights_only=True))
 model = model.to(DEVICE).eval()
 
 print("Building class index ...")
