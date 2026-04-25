@@ -22,7 +22,7 @@ ANS is an end-to-end autonomous navigation system for Mars rovers during communi
 ## Repository Structure
 
 ```
-MarsIDAI710/
+MARS-ANS/
 ├── src/                    # All source code
 │   ├── config.py           # Hyperparameters and constants
 │   ├── data.py             # AI4Mars dataset loader + cost map builder
@@ -33,9 +33,11 @@ MarsIDAI710/
 │   ├── train.py            # MobileNetV3 training script
 │   ├── train_rl.py         # RL agent training script
 │   ├── run_ablations.py    # Ablation sweep runner
-│   └── dashboard.py        # Streamlit interactive dashboard
+│   ├── dashboard.py        # Streamlit interactive dashboard
+│   ├── simulation.py       # Live pygame simulation demo
+│   └── inference_server.py # Flask inference server for cluster deployment
 ├── notebooks/
-│   └── ANS_Complete.ipynb  # Full Colab notebook (all sections)
+│   └── ANS_Perception.ipynb  # Perception pipeline and MC Dropout analysis
 ├── models/
 │   └── README.md           # Instructions for downloading model weights
 ├── configs/
@@ -54,16 +56,21 @@ MarsIDAI710/
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/aditdhall/MarsIDAI710.git
-cd MarsIDAI710
+git clone https://github.com/aditdhall/MARS-ANS.git
+cd MARS-ANS
 ```
 
-### 2. Create virtual environment
+### 2. Set up conda environment
 ```bash
-python3 -m venv venv
-source venv/bin/activate       # Mac/Linux
+conda activate mars_ans
 pip install -r requirements.txt
 ```
+
+> Alternatively, recreate the environment from scratch:
+> ```bash
+> conda env create -f environment.yml
+> conda activate mars_ans
+> ```
 
 ### 3. Download model weights
 See `models/README.md` for instructions on downloading pre-trained weights.
@@ -103,8 +110,44 @@ cd src
 python run_ablations.py
 ```
 
+### Live Pygame Simulation
+
+The simulation requires two terminals: one on the cluster running the inference server,
+and one local running the pygame window.
+
+**Terminal 1 — Cluster (inference server):**
+```bash
+ssh ad6449@narnia.gccis.rit.edu
+tmux attach -t mars
+conda activate mars_ans
+cd ~/MARS-ANS
+export CUDA_VISIBLE_DEVICES=4
+python3 src/inference_server.py
+```
+Detach from tmux with `Ctrl+B, D` — the server keeps running in the background.
+
+**Terminal 2 — Local (SSH tunnel, keep open):**
+```bash
+ssh -L 5000:localhost:5000 ad6449@narnia.gccis.rit.edu -N
+```
+
+**Terminal 3 — Local (pygame window):**
+```bash
+python src/simulation.py
+```
+
+The simulation will print `Inference server: ONLINE` if the Flask server is reachable,
+or fall back to simulated CNN probabilities if not.
+
+**Controls:**
+| Key | Action |
+|-----|--------|
+| `SPACE` | Pause / Resume |
+| `R` | Reset with new random map |
+| `Q` / `ESC` | Quit |
+
 ### Full Colab Notebook
-Upload `notebooks/ANS_Complete.ipynb` to Google Colab with A100 GPU. Run all cells in order.
+Upload `notebooks/ANS_Perception.ipynb` to Google Colab. Run all cells in order.
 
 ---
 
