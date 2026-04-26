@@ -44,7 +44,6 @@ MARS-ANS/
 │   └── default.yaml        # All hyperparameters in YAML format
 ├── data/
 │   └── README.md           # Instructions for obtaining AI4Mars dataset
-├── figures/                # Generated plots and visualizations
 ├── requirements.txt        # Python dependencies
 ├── AI_USAGE.md             # AI assistance log
 └── README.md               # This file
