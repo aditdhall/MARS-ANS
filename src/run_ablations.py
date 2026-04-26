@@ -16,13 +16,13 @@ results = {"alpha_sweep": {}, "h_crit_sweep": {}}
 
 print("=== Ablation 1: alpha sweep ===")
 for alpha in [0.0, 0.25, 0.5, 0.75, 1.0]:
-    r = run_ablation(n_runs=20, alpha=alpha, h_crit=0.7, dqn_path=DQN_PATH)
+    r = run_ablation(n_runs=50, alpha=alpha, h_crit=0.7, dqn_path=DQN_PATH)
     print(f"alpha={alpha}: {r}")
     results["alpha_sweep"][str(alpha)] = r
 
 print("\n=== Ablation 2: h_crit sweep ===")
 for h_crit in [0.4, 0.5, 0.6, 0.7, 0.8]:
-    r = run_ablation(n_runs=20, alpha=0.75, h_crit=h_crit, dqn_path=DQN_PATH)
+    r = run_ablation(n_runs=50, alpha=0.75, h_crit=h_crit, dqn_path=DQN_PATH)
     print(f"h_crit={h_crit}: {r}")
     results["h_crit_sweep"][str(h_crit)] = r
 
