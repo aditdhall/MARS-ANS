@@ -171,27 +171,32 @@ Simulated LiDAR → Slope + Roughness + LiDAR Confidence
          Double DQN Local Navigator → Continuous Actions
 ```
 
+The ANS system uses a three-layer navigation architecture:
+- **Theta*** computes the globally optimal reference path at mission start (shown in blue)
+- **RL agent** (Double DQN) drives the rover reactively step by step
+- **D* Lite** overrides the RL agent when perception conflict is detected
+
 ---
 
 ## Key Results
 
-### Ablation: Alpha (H-score uncertainty weight)
-| Alpha | Completion Rate | Avg Steps | Avg Reward |
-|-------|----------------|-----------|------------|
-| 0.00  | 0%             | 6.00      | 8.52       |
-| 0.25  | 0%             | 10.55     | 20.26      |
-| 0.50  | 95%            | 38.35     | 172.32     |
-| **0.75**  | **95%**   | **46.35** | **236.28** |
-| 1.00  | 80%            | 46.75     | 225.32     |
+### Alpha Sweep Results (H_crit=0.8 fixed, 50 episodes each)
+| Alpha | Completion | Avg Reward | Avg Collisions |
+|-------|-----------|------------|----------------|
+| 0.00  | 0%        | 8.39       | 1.00           |
+| 0.25  | 92%       | 222.39     | 0.08           |
+| 0.50  | 92%       | 225.33     | 0.08           |
+| 0.75  | 90%       | 218.19     | 0.10           |
+| **1.00**  | **94%**   | **229.57** | **0.06**   |
 
-### Ablation: H_crit (impassability threshold)
-| H_crit | Completion Rate | Avg Steps | Avg Reward |
-|--------|----------------|-----------|------------|
-| 0.4    | 0%             | 5.55      | 7.27       |
-| 0.5    | 20%            | 28.75     | 108.37     |
-| 0.6    | 95%            | 41.50     | 187.98     |
-| **0.7**    | **100%**    | **45.85** | **208.49** |
-| 0.8    | 85%            | 39.05     | 183.48     |
+### H_crit Sweep Results (Alpha=1.0 fixed, 50 episodes each)
+| H_crit | Completion | Avg Reward | Avg Collisions |
+|--------|-----------|------------|----------------|
+| 0.4    | 92%       | 226.27     | 0.08           |
+| 0.5    | 90%       | 217.30     | 0.10           |
+| 0.6    | 90%       | 217.70     | 0.10           |
+| 0.7    | 92%       | 222.94     | 0.08           |
+| **0.8**    | **94%** | **230.67** | **0.06**   |
 
 ### Planner Comparison
 | Planner  | Avg Path Length | Avg Time (ms) | Completion |

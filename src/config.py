@@ -9,8 +9,8 @@ MC_PASSES   = 30         # MC Dropout forward passes
 BETA        = 0.5        # camera vs lidar fusion weight
 
 # H-score
-ALPHA       = 0.75       # uncertainty vs volatility weight
-H_CRIT      = 0.7        # impassable threshold
+ALPHA       = 1.0        # uncertainty vs volatility weight
+H_CRIT      = 0.8        # impassable threshold
 
 # Cost map weights
 W_TERRAIN   = 0.3

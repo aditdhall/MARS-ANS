@@ -256,11 +256,12 @@ def draw_map_panel(surf, rect, cost_map, class_grid, traj, theta_path,
                 col  = tuple(int(b * (1 - 0.3*t)) for b in base)
                 pygame.draw.rect(surf, col, (x_, y_, w_, h_))
 
-    # Theta* path (white dots)
-    for p in theta_path:
-        px = int(inner.x + p[1]*cw + cw/2)
-        py = int(inner.y + p[0]*ch + ch/2)
-        pygame.draw.circle(surf, (180, 180, 180), (px, py), 2)
+    # Theta* path (solid blue)
+    if len(theta_path) > 1:
+        theta_pts = [(int(inner.x + p[1]*cw + cw/2),
+                      int(inner.y + p[0]*ch + ch/2)) for p in theta_path]
+        for i in range(len(theta_pts)-1):
+            pygame.draw.line(surf, GLOW_BLUE, theta_pts[i], theta_pts[i+1], 2)
 
     # D* Lite replan history — every plan ever generated stays on screen.
     # Older plans fade to dim orange; the newest (active) plan glows bright.
@@ -336,17 +337,22 @@ def draw_map_panel(surf, rect, cost_map, class_grid, traj, theta_path,
 
     # Legend
     lx, ly = rect.x + PAD, rect.y + rect.height - 26
-    pygame.draw.line(surf, (180,180,180), (lx, ly+4), (lx+18, ly+4), 1)
-    surf.blit(font(10).render("Theta*", True, GREY), (lx+22, ly))
-    lx2 = lx + 80
-    # Faded past replans
+    # Theta* (ideal) — blue
+    pygame.draw.line(surf, GLOW_BLUE, (lx, ly+4), (lx+18, ly+4), 2)
+    surf.blit(font(10).render("Theta* (ideal)", True, GREY), (lx+22, ly))
+    # RL path — cyan
+    lx2 = lx + 120
+    pygame.draw.line(surf, GLOW_CYAN, (lx2, ly+4), (lx2+18, ly+4), 2)
+    surf.blit(font(10).render("RL path", True, GREY), (lx2+22, ly))
+    # Past D*
+    lx3 = lx2 + 80
     past = tuple(int(c*0.45) for c in GLOW_ORANGE)
-    pygame.draw.line(surf, past, (lx2, ly+4), (lx2+18, ly+4), 1)
-    surf.blit(font(10).render("past D*", True, GREY), (lx2+22, ly))
+    pygame.draw.line(surf, past, (lx3, ly+4), (lx3+18, ly+4), 1)
+    surf.blit(font(10).render("past D*", True, GREY), (lx3+22, ly))
     # Active D*
-    lx3 = lx2 + 90
-    glow_line(surf, GLOW_ORANGE, (lx3, ly+4), (lx3+18, ly+4), w=2, glow=3)
-    surf.blit(font(10).render("active D*", True, GREY), (lx3+22, ly))
+    lx4 = lx3 + 90
+    glow_line(surf, GLOW_ORANGE, (lx4, ly+4), (lx4+18, ly+4), w=2, glow=3)
+    surf.blit(font(10).render("active D*", True, GREY), (lx4+22, ly))
 
     # Status
     st = "PAUSED" if paused else f"Step {step}/300"
