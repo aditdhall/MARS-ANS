@@ -145,8 +145,23 @@ or fall back to simulated CNN probabilities if not.
 | `R` | Reset with new random map |
 | `Q` / `ESC` | Quit |
 
-### Full Colab Notebook
-Upload `notebooks/ANS_Perception.ipynb` to Google Colab. Run all cells in order.
+### Run Verification Notebook
+Open Jupyter on Narnia and run all cells in order:
+
+```bash
+ssh ad6449@narnia.gccis.rit.edu
+tmux attach -t mars
+conda activate mars_ans
+cd ~/MARS-ANS
+jupyter notebook --no-browser --port=8888
+```
+
+Then on your local machine forward the port:
+```bash
+ssh -L 8888:localhost:8888 ad6449@narnia.gccis.rit.edu -N
+```
+
+Open `http://localhost:8888` in your browser and run `notebooks/ANS_Perception.ipynb`.
 
 ---
 
