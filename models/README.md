@@ -1,6 +1,25 @@
 # Model Weights
 
-Pre-trained model weights are not committed to this repository due to GitHub file size limits.
+Pre-trained model weights are hosted on HuggingFace due to GitHub file size limits.
+
+## Download
+
+**HuggingFace repo:** https://huggingface.co/aditdhall/MARS_ANS
+
+```bash
+pip install huggingface_hub
+
+python3 -c "
+from huggingface_hub import hf_hub_download
+import shutil, os
+
+files = ['best_model.pt', 'dqn_rover.pt', 'class_index.json']
+for f in files:
+    path = hf_hub_download(repo_id='aditdhall/MARS_ANS', filename=f)
+    shutil.copy(path, f'models/{f}')
+    print(f'Downloaded {f}')
+"
+```
 
 ## Available Weights
 
@@ -10,9 +29,7 @@ Pre-trained model weights are not committed to this repository due to GitHub fil
 | `dqn_rover.pt` | ~75 KB | Double DQN trained for 5,000 episodes — 94% mission completion (alpha=1.0, H_crit=0.8) |
 | `class_index.json` | ~622 KB | Class index mapping for inference server |
 
-## Retrain from scratch (recommended)
-
-All models can be reproduced exactly using the provided scripts.
+## Retrain from scratch (alternative)
 
 **Step 1 — Train MobileNetV3 terrain classifier (~30 min on cluster GPU):**
 ```bash
@@ -31,7 +48,7 @@ python src/train_rl.py \
     --episodes 5000 \
     --grid_size 15
 ```
-Saves `models/dqn_rover.pt` and `models/dqn_rover_final.pt`.
+Saves `models/dqn_rover.pt`.
 
 **Step 3 — Run ablations (~20 min):**
 ```bash
