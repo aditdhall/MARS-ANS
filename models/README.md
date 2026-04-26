@@ -31,7 +31,7 @@ for f in files:
 
 ## Retrain from scratch (alternative)
 
-**Step 1 — Train MobileNetV3 terrain classifier (~30 min on cluster GPU):**
+**Step 1 — Train MobileNetV3 terrain classifier (~30 min on Narnia GPU):**
 ```bash
 export CUDA_VISIBLE_DEVICES=4
 python src/train.py \
@@ -41,7 +41,7 @@ python src/train.py \
 ```
 Saves `models/best_model.pt` and `models/training_history.json`.
 
-**Step 2 — Train RL agent (~40 min on cluster GPU):**
+**Step 2 — Train RL agent (~40 min on Narnia GPU):**
 ```bash
 python src/train_rl.py \
     --save_dir models/ \

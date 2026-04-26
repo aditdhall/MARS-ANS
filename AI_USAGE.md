@@ -110,13 +110,13 @@ This file documents how we used AI tools during the project. The pattern was pre
 
 **Tool:** Claude
 
-**Prompt/Request:** "Implement a Flask server with /health, /infer, and /batch_infer endpoints that loads our trained MobileNetV3 model and runs MC Dropout inference on request. It needs to serve predictions over HTTP so a local pygame simulation can get real CNN outputs from the GPU cluster."
+**Prompt/Request:** "Implement a Flask server with /health, /infer, and /batch_infer endpoints that loads our trained MobileNetV3 model and runs MC Dropout inference on request. It needs to serve predictions over HTTP so a local pygame simulation can get real CNN outputs from Narnia."
 
 **What was generated:** The full Flask server and class index builder.
 
-**Modifications we made:** The endpoint design and the architecture (local pygame + cluster GPU server connected over SSH tunnel) were our decisions. We tested all three endpoints and confirmed the simulation correctly prints `Inference server: ONLINE` and receives real probability distributions.
+**Modifications we made:** The endpoint design and the architecture (local pygame + Narnia GPU server connected over SSH tunnel) were our decisions. We tested all three endpoints and confirmed the simulation correctly prints `Inference server: ONLINE` and receives real probability distributions.
 
-**What we learned:** Separating inference onto the cluster and rendering locally over a tunnel is a clean pattern for GPU-heavy demos. Worth keeping in mind for future projects.
+**What we learned:** Separating inference onto Narnia and rendering locally over a tunnel is a clean pattern for GPU-heavy demos. Worth keeping in mind for future projects.
 
 ---
 
@@ -128,7 +128,7 @@ This file documents how we used AI tools during the project. The pattern was pre
 
 **What was generated:** The full pygame application — all drawing functions, the rover step loop, and the conflict/replan logic.
 
-**Modifications we made:** The panel layout, the conflict detection thresholds, and the fading history idea were all ours. We ran the simulation end-to-end with the inference server live on the cluster, confirmed all six panels update correctly, and verified replanning triggers at the right moments.
+**Modifications we made:** The panel layout, the conflict detection thresholds, and the fading history idea were all ours. We ran the simulation end-to-end with the inference server live on Narnia, confirmed all six panels update correctly, and verified replanning triggers at the right moments.
 
 **What we learned:** Designing the visual layout before implementing it makes Claude's output much cleaner. When we gave it a precise grid spec, it got it right first try.
 

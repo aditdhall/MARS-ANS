@@ -35,7 +35,7 @@ MARS-ANS/
 │   ├── run_ablations.py    # Ablation sweep runner
 │   ├── dashboard.py        # Streamlit interactive dashboard
 │   ├── simulation.py       # Live pygame simulation demo
-│   └── inference_server.py # Flask inference server for cluster deployment
+│   └── inference_server.py # Flask inference server for Narnia deployment
 ├── notebooks/
 │   └── ANS_Perception.ipynb  # Perception pipeline and MC Dropout analysis
 ├── models/
@@ -112,10 +112,10 @@ python run_ablations.py
 
 ### Live Pygame Simulation
 
-The simulation requires two terminals: one on the cluster running the inference server,
+The simulation requires two terminals: one on Narnia running the inference server,
 and one local running the pygame window.
 
-**Terminal 1 — Cluster (inference server):**
+**Terminal 1 — Narnia (inference server):**
 ```bash
 ssh ad6449@narnia.gccis.rit.edu
 tmux attach -t mars

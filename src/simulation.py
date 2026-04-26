@@ -175,7 +175,7 @@ def load_images(img_dir):
 
 
 def infer_from_server(terrain_class, server_url="http://localhost:5000"):
-    """Call cluster inference server. Returns (probs, entropy, cam_conf, stem)
+    """Call Narnia inference server. Returns (probs, entropy, cam_conf, stem)
     or None if server unavailable."""
     try:
         data = json.dumps({"terrain_class": terrain_class}).encode()
