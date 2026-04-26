@@ -33,7 +33,7 @@ for f in files:
 
 **Step 1 — Train MobileNetV3 terrain classifier (~30 min on Narnia GPU):**
 ```bash
-export CUDA_VISIBLE_DEVICES=4
+export CUDA_VISIBLE_DEVICES=<your_gpu_id>  # Replace with your GPU number (e.g. 4)
 python src/train.py \
     --img_dir data/ai4mars/ai4mars-dataset-merged-0.1/msl/images/edr \
     --label_dir data/ai4mars/ai4mars-dataset-merged-0.1/msl/labels/train \

@@ -93,7 +93,7 @@ ssh ad6449@narnia.gccis.rit.edu
 tmux attach -t mars
 conda activate mars_ans
 cd ~/MARS-ANS
-export CUDA_VISIBLE_DEVICES=4
+export CUDA_VISIBLE_DEVICES=<your_gpu_id>  # Replace with your GPU number (e.g. 4)
 python src/train.py \
     --img_dir data/ai4mars/ai4mars-dataset-merged-0.1/msl/images/edr \
     --label_dir data/ai4mars/ai4mars-dataset-merged-0.1/msl/labels/train \
@@ -125,7 +125,7 @@ ssh ad6449@narnia.gccis.rit.edu
 tmux attach -t mars
 conda activate mars_ans
 cd ~/MARS-ANS
-export CUDA_VISIBLE_DEVICES=4
+export CUDA_VISIBLE_DEVICES=<your_gpu_id>  # Replace with your GPU number (e.g. 4)
 python3 src/inference_server.py
 ```
 Detach from tmux with `Ctrl+B, D` — the server keeps running in the background.
