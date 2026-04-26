@@ -105,7 +105,7 @@ def run_ablation(n_runs=20, alpha=0.5, h_crit=0.6, grid_size=15,
         env   = MarsRoverEnv(cost_map, (0, 0), (H-1, W-1))
         agent = DoubleDQN()
         if os.path.exists(dqn_path):
-            agent.online_net.load_state_dict(torch.load(dqn_path, map_location="cpu"))
+            agent.online_net.load_state_dict(torch.load(dqn_path, map_location="cpu", weights_only=True))
             agent.epsilon = 0.05
 
         state                            = env.reset()

@@ -10,8 +10,8 @@ mc_passes: 30           # MC Dropout forward passes
 beta: 0.5               # camera vs lidar fusion weight
 
 # H-score (best from ablation)
-alpha: 0.75             # uncertainty vs volatility weight
-h_crit: 0.7             # impassable threshold
+alpha: 1.0              # uncertainty vs volatility weight
+h_crit: 0.8             # impassable threshold
 
 # Cost map weights
 w_terrain: 0.3
@@ -20,7 +20,7 @@ w_rough: 0.2
 w_hscore: 0.3
 
 # RL training
-episodes: 500
+episodes: 5000
 batch_size: 64
 lr: 0.0001
 gamma: 0.99
@@ -66,4 +66,4 @@ class_weights:
 ablation:
   alpha_values: [0.0, 0.25, 0.5, 0.75, 1.0]
   h_crit_values: [0.4, 0.5, 0.6, 0.7, 0.8]
-  n_runs: 20
+  n_runs: 50
