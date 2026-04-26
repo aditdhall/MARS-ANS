@@ -87,12 +87,17 @@ cd src
 streamlit run dashboard.py
 ```
 
-### Train MobileNetV3 (Colab recommended)
+### Train MobileNetV3 (run on Narnia)
 ```bash
+ssh ad6449@narnia.gccis.rit.edu
+tmux attach -t mars
+conda activate mars_ans
+cd ~/MARS-ANS
+export CUDA_VISIBLE_DEVICES=4
 python src/train.py \
-    --img_dir /path/to/ai4mars/images/edr \
-    --label_dir /path/to/ai4mars/labels/train \
-    --good_json /path/to/good_labels.json
+    --img_dir data/ai4mars/ai4mars-dataset-merged-0.1/msl/images/edr \
+    --label_dir data/ai4mars/ai4mars-dataset-merged-0.1/msl/labels/train \
+    --good_json data/good_labels.json
 ```
 
 ### Train RL Agent
