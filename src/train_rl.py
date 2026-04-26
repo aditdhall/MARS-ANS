@@ -36,7 +36,7 @@ if __name__ == "__main__":
             for j in range(W):
                 cls  = terrain_grid[i][j]
                 geom = get_geometry(cls)
-                h    = compute_hscore(geom["lidar_conf"] * 0.3, cls, alpha=config.ALPHA)
+                h    = compute_hscore(geom["lidar_conf"] * 0.3, geom, alpha=config.ALPHA)
                 if h > config.H_CRIT:
                     cost_map[i, j] = 999
                 else:

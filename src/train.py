@@ -84,7 +84,8 @@ if __name__ == "__main__":
     loss_fn = tc.get_loss_fn()
     optimizer = tc.get_optimizer(model)
 
-    save_dir = os.path.dirname(os.path.abspath(GOOD_JSON))
+    save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
+    os.makedirs(save_dir, exist_ok=True)
 
     history = train_model(model, train_loader, val_loader, loss_fn, optimizer, device, save_dir)
 
