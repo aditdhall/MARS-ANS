@@ -14,8 +14,8 @@ ANS is an end-to-end autonomous navigation system for Mars rovers during communi
 - MobileNetV3-Small terrain classifier: **92.83% validation accuracy** on AI4Mars
 - MC Dropout uncertainty estimation with T=30 stochastic passes
 - Camera + simulated LiDAR sensor fusion via H-score
-- Theta* any-angle planner + D* Lite incremental replanner
-- Double DQN local navigator: **100% mission completion** (alpha=0.75, Hcrit=0.7)
+- Three-layer navigation: Theta* reference path + RL reactive driver + D* Lite conflict override
+- Double DQN agent: **94% mission completion** (alpha=1.0, Hcrit=0.8), trained over 5,000 episodes
 
 ---
 
@@ -100,7 +100,7 @@ python src/train.py \
 ```bash
 python src/train_rl.py \
     --save_dir models/ \
-    --episodes 500 \
+    --episodes 5000 \
     --grid_size 15
 ```
 
